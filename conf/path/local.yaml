@@ -1,6 +1,6 @@
 root_dir: /home/user/work
-input_dir: ${path.root_dir}/input
+input_dir: ${path.root_dir}/input/eedi-mining-misconceptions-in-mathematics
 output_dir: ${path.root_dir}/output
 feature_dir: ${path.output_dir}/feature_store
-model_dir: ${path.output_dir}/train
+model_dir: ${path.output_dir}
 sub_dir: ./

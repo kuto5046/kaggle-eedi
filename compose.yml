@@ -24,12 +24,12 @@ services:
       - type: bind
         source: ~/.kaggle/
         target: /home/user/.kaggle/
-      # - type: bind
-      #   source: /mnt/ssd/kaggle-comp/output/  # TODO: ここは適宜変更
-      #   target: /home/user/work/output/
+      - type: bind
+        source: /mnt/ssd/kaggle-eedi/output/  # TODO: ここは適宜変更
+        target: /home/user/work/output/
     ports:
-      - 8888:8888
-      - 8501:8501
+      - 8889:8888
+      - 8502:8501
     tty: true
     stdin_open: True
     hostname: kuzira
