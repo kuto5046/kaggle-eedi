@@ -6,7 +6,7 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 from sentence_transformers import SentenceTransformer
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
 
@@ -73,9 +73,9 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
     return train
 
 
-def get_groupkfold(train: pl.DataFrame, n_splits: int) -> pl.DataFrame:
-    kf = GroupKFold(n_splits=n_splits)
-    cv = list(kf.split(X=train, groups=train["QuestionId"].to_numpy()))
+def get_stratifiedgroupkfold(train: pl.DataFrame, n_splits: int, seed: int) -> pl.DataFrame:
+    kf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    cv = list(kf.split(X=train, y=train["MisconceptionId"].to_numpy(), groups=train["QuestionId"].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -146,7 +146,7 @@ class DataProcessor:
 
     def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
         if self.cfg.phase == "train":
-            return get_groupkfold(df, self.cfg.n_splits)
+            return get_stratifiedgroupkfold(df, self.cfg.n_splits, self.cfg.seed)
         else:
             return df
 

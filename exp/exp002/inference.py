@@ -66,7 +66,7 @@ class InferencePipeline:
         filter_preds = [pred[:, :30] for pred in preds]
         pred = ensemble_predictions(filter_preds)
         submission = (
-            df.with_columns(pl.Series(pred[:, :25].tolist()).alias("MisconceptionId"))
+            df.with_columns(pl.Series(pred[:, : self.cfg.retrieve_num].tolist()).alias("MisconceptionId"))
             .with_columns(
                 pl.col("MisconceptionId").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
             )

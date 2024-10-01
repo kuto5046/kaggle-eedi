@@ -1,6 +1,6 @@
-exp_name: exp001
+exp_name: exp002
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "baseline"
+notes: "foldをmisconceptionでstratifiedにする"
 tags: []
 
 defaults:
@@ -28,7 +28,7 @@ model:
 
 trainer:
   epoch: 3
-  batch_size: 16
+  batch_size: 8
   gradient_accumulation_steps: 1
   learning_rate: 1e-5
   weight_decay: 0.01
