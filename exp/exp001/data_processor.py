@@ -131,7 +131,7 @@ class DataProcessor:
         if self.cfg.phase == "test":
             return df
 
-        # misconception情報を取得
+        # misconception情報(target)を取得
         pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
         df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
 

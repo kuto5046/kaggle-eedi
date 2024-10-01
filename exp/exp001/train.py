@@ -1,13 +1,15 @@
+import gc
 import logging
-from typing import Any
 from pathlib import Path
 
 import hydra
 import numpy as np
+import torch
 import polars as pl
 from datasets import Dataset
 from lightning import seed_everything
 from omegaconf import DictConfig
+from numpy.typing import NDArray
 from sentence_transformers import (
     SentenceTransformer,
     SentenceTransformerTrainer,
@@ -23,9 +25,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 # ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
-def mapk(preds: np.ndarray, labels: np.ndarray, k: int = 25) -> float:
+def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> float:
     map_sum = 0
-    for x, y in zip(preds, labels):
+    for _x, y in zip(preds, labels):
+        x = [int(i) for i in _x.split(" ")]
         z = [1 / i if y == j else 0 for i, j in zip(range(1, k + 1), x)]
         map_sum += np.sum(z)
     return map_sum / len(preds)
@@ -44,7 +47,6 @@ class TrainPipeline:
         self.common_cols = ["QuestionId", "ConstructName", "SubjectName", "QuestionText", "CorrectAnswer"]
 
         self.cfg = cfg
-        self.models: list[Any] = []
         self.oofs: list[pl.DataFrame] = []
         self.scores: list[float] = []
         self.debug_config()
@@ -53,9 +55,9 @@ class TrainPipeline:
     def debug_config(self) -> None:
         if self.cfg.debug:
             self.cfg.trainer.epoch = 1
-            self.cfg.trainer.save_strategy = "no"
-            self.cfg.trainer.logging_strategy = "no"
-            self.cfg.trainer.eval_strategy = "no"
+            self.cfg.trainer.save_steps = 0.5
+            self.cfg.trainer.logging_steps = 0.5
+            self.cfg.trainer.eval_steps = 0.5
 
     def setup_dataset(self, fold: int) -> None:
         df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "train.csv")
@@ -133,16 +135,19 @@ class TrainPipeline:
             logging_steps=params.logging_steps,
             eval_strategy=params.eval_strategy,
             eval_steps=params.eval_steps,
+            metric_for_best_model=params.metric_for_best_model,
             report_to=params.report_to,
             run_name=self.cfg.exp_name + "_" + self.cfg.run_name,
+            seed=self.cfg.seed,
+            load_best_model_at_end=True,
             do_eval=True,
         )
 
-        self.trainer = SentenceTransformerTrainer(
+        trainer = SentenceTransformerTrainer(
             model=self.model, args=args, train_dataset=self.train_dataset, eval_dataset=self.valid_dataset, loss=loss
         )
 
-        self.trainer.train()
+        trainer.train()
         self.model.save_pretrained(path=str(output_dir))
 
     def evaluate(self, fold: int) -> None:
@@ -158,15 +163,22 @@ class TrainPipeline:
             .with_columns(pl.Series(sorted_similarity[:, :25].tolist()).alias("pred"))
             .with_columns(pl.col("pred").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
         )
-
+        oof.write_csv(self.output_dir / f"oof_{fold}.csv")
         score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
         LOGGER.info(f"CV: {score}")
         wandb.log({"CV": score})  # type: ignore
         self.oofs.append(oof)
         self.scores.append(score)
 
+    def reset(self) -> None:
+        if hasattr(self, "model"):
+            del self.model
+            gc.collect()
+            torch.cuda.empty_cache()
+
     def run(self) -> None:
         for fold in self.cfg.use_folds:
+            self.reset()
             self.setup_logger(fold)
             self.setup_dataset(fold)
             self.training(fold)
