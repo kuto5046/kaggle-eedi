@@ -173,8 +173,15 @@ class TrainPipeline:
     def reset(self) -> None:
         if hasattr(self, "model"):
             del self.model
-            gc.collect()
-            torch.cuda.empty_cache()
+
+        if hasattr(self, "train_dataset"):
+            del self.train_dataset
+
+        if hasattr(self, "valid_dataset"):
+            del self.valid_dataset
+
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def run(self) -> None:
         for fold in self.cfg.use_folds:

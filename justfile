@@ -21,4 +21,4 @@ upload:
 
 # run streamlit app
 streamlit:
-	uv run streamlit run visualizer.py --server.address 0.0.0.0
+	uv run streamlit run src/tools/visualizer.py --server.address 0.0.0.0
