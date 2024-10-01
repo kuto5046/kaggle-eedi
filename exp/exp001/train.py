@@ -160,7 +160,7 @@ class TrainPipeline:
         sorted_similarity = np.argsort(-similarity, axis=1)
         oof = (
             oof.drop("AllText")
-            .with_columns(pl.Series(sorted_similarity[:, :25].tolist()).alias("pred"))
+            .with_columns(pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("pred"))
             .with_columns(pl.col("pred").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
         )
         oof.write_csv(self.output_dir / f"oof_{fold}.csv")

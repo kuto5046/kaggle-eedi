@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 from kaggle.api.kaggle_api_extended import KaggleApi
 
-DATASET_TITLE = "kuto-custom-model"  # ここをコンペごとに変更
+DATASET_TITLE = "kuto-eedi-model"  # ここをコンペごとに変更
 
 TARGET_EXP_NAMES = [
     "exp001",
