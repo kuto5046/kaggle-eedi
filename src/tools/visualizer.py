@@ -23,7 +23,7 @@ def plot_answer(
         misconception_id = int(misconception_id)
         misconception_name = misconception_mapping[misconception_id]
     else:
-        misconception_name = "No Misconception"
+        misconception_name = ""
 
     with col:
         if is_correct_answer:
