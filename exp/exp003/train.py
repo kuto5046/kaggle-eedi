@@ -140,7 +140,7 @@ class TrainPipeline:
             report_to=params.report_to,
             run_name=self.cfg.exp_name + "_" + self.cfg.run_name,
             seed=self.cfg.seed,
-            load_best_model_at_end=True,
+            # load_best_model_at_end=True,
             do_eval=True,
         )
 
