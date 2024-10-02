@@ -10,8 +10,10 @@ DATASET_TITLE = "kuto-eedi-model"  # ここをコンペごとに変更
 
 TARGET_EXP_NAMES = [
     # "feature_store",
-    "exp001",
-    "exp002",
+    "dummy",
+    # "exp001",
+    # "exp002",
+    "exp003",
 ]
 
 
