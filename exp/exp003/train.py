@@ -136,7 +136,7 @@ class TrainPipeline:
             logging_steps=params.logging_steps,
             eval_strategy=params.eval_strategy,
             eval_steps=params.eval_steps,
-            metric_for_best_model=params.metric_for_best_model,
+            # metric_for_best_model=params.metric_for_best_model,
             report_to=params.report_to,
             run_name=self.cfg.exp_name + "_" + self.cfg.run_name,
             seed=self.cfg.seed,

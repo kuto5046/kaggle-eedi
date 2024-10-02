@@ -35,14 +35,14 @@ trainer:
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
   lr_scheduler_type: cosine_with_restarts
-  save_strategy: steps
+  save_strategy: no
   save_steps: 0.1  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
   logging_strategy: steps
   logging_steps: 0.1  # training_step全体の何%ごとにログを出力するか
   eval_strategy: steps
   eval_steps: 0.1  # training_step全体の何%ごとに評価するか
-  # metric_for_best_model: eval_loss
+  metric_for_best_model: eval_loss
   report_to: wandb
 
 
