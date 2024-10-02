@@ -143,11 +143,11 @@ class TrainPipeline:
             do_eval=True,
         )
 
-        trainer = SentenceTransformerTrainer(
+        self.trainer = SentenceTransformerTrainer(
             model=self.model, args=args, train_dataset=self.train_dataset, eval_dataset=self.valid_dataset, loss=loss
         )
 
-        trainer.train()
+        self.trainer.train()
         self.model.save_pretrained(path=str(output_dir))
 
     def evaluate(self, fold: int) -> None:
@@ -180,6 +180,9 @@ class TrainPipeline:
         if hasattr(self, "valid_dataset"):
             del self.valid_dataset
 
+        if hasattr(self, "trainer"):
+            del self.trainer
+
         gc.collect()
         torch.cuda.empty_cache()
 
@@ -196,7 +199,7 @@ class TrainPipeline:
 
         oof = pl.concat(self.oofs).sort("QuestionId_Answer")
         oof.write_csv(self.output_dir / "oof.csv")
-        score = mapk(preds=oof["pred"].to_numpy(), labels=self.valid["MisconceptionId"].to_numpy())
+        score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
         LOGGER.info(f"ALL CV: {score}")
         wandb.log({"ALL CV": score})  # type: ignore
         wandb.finish()  # type: ignore

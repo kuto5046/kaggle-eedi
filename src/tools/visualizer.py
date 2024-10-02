@@ -50,7 +50,8 @@ def main() -> None:
 
     with st.sidebar:
         st.markdown("## Filter")
-        id = st.selectbox(label="QuestionId", options=df["QuestionId"].to_list())
+        # id = st.selectbox(label="QuestionId", options=df["QuestionId"].to_list())
+        id = st.number_input(label="QuestionId", min_value=0, max_value=df["QuestionId"].max())
     _data = df[id].to_dict(as_series=False)
     data = {k: v[0] for k, v in _data.items()}
 

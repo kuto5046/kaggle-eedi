@@ -1,5 +1,5 @@
 root_dir: /kaggle
-input_dir: ${path.root_dir}/input/child-mind-institute-problematic-internet-use
+input_dir: ${path.root_dir}/input//eedi-mining-misconceptions-in-mathematics
 output_dir: ${path.root_dir}/working/output
 feature_dir: ${path.output_dir}/feature_store
 model_dir: ${path.root_dir}/input/kuto-eedi-model

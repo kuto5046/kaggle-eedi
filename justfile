@@ -19,6 +19,11 @@ upload:
 	uv run python src/tools/upload_code.py
 	uv run python src/tools/upload_model.py
 
+upload-model:
+	uv run python src/tools/upload_model.py
+upload-code:
+	uv run python src/tools/upload_code.py
+
 # run streamlit app
 streamlit:
 	uv run streamlit run src/tools/visualizer.py --server.address 0.0.0.0

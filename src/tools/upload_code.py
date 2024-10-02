@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 from kaggle.api.kaggle_api_extended import KaggleApi
 
-DATASET_TITLE = "kuto-eedi-model"  # ここをコンペごとに変更
+DATASET_TITLE = "kuto-eedi-code"  # ここをコンペごとに変更
 
 
 def copy_all_files(source_dirs: list[Path], dest_dir: Path) -> None:
@@ -36,7 +36,7 @@ def copy_all_files(source_dirs: list[Path], dest_dir: Path) -> None:
     "--dirs",
     "-d",
     type=list[Path],
-    default=[Path("./src"), Path("./conf")],
+    default=[Path("./src"), Path("./conf"), Path("./exp")],
 )
 @click.option("--user_name", "-u", default="kuto0633")
 @click.option("--new", "-n", is_flag=True)

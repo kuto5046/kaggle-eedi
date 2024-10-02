@@ -1,2 +1,8 @@
 # @package _global_
 run_name: run0
+use_folds:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4

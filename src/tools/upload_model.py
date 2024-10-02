@@ -9,7 +9,9 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 DATASET_TITLE = "kuto-eedi-model"  # ここをコンペごとに変更
 
 TARGET_EXP_NAMES = [
+    # "feature_store",
     "exp001",
+    "exp002",
 ]
 
 
@@ -41,15 +43,17 @@ def copy_files_with_exts(source_dir: Path, dest_dir: Path, exts: list) -> None:
 
 @click.command()
 @click.option("--title", "-t", default=DATASET_TITLE)
-@click.option("--dir", "-d", type=Path, default="./output/train")
+@click.option("--dir", "-d", type=Path, default="./output/")
 @click.option(
     "--extentions",
     "-e",
     type=list[str],
     default=[
-        "best_model.pth",
-        ".hydra/*.yaml",
-        "preds.npy",
+        "model.safetensors",
+        "vocab.txt",
+        ".json",
+        # ".hydra/*.yaml",
+        # "preds.npy",
     ],
 )
 @click.option("--user_name", "-u", default="kuto0633")
@@ -57,8 +61,8 @@ def copy_files_with_exts(source_dir: Path, dest_dir: Path, exts: list) -> None:
 def main(
     title: str,
     dir: Path,
-    extentions: list[str] = [".pth", ".yaml"],
-    user_name: str = "kuto0633",
+    extentions: list[str],
+    user_name: str,
     new: bool = False,
 ) -> None:
     """extentionを指定して、dir以下のファイルをzipに圧縮し、kaggleにアップロードする。
