@@ -1,6 +1,6 @@
-exp_name: exp002
+exp_name: exp003
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "foldをmisconceptionでstratifiedにする"
+notes: "pubicを再現"
 tags: []
 
 defaults:
@@ -15,12 +15,12 @@ phase: train  # train, test
 n_splits: 5
 use_folds:
   - 0
-  - 1
-  - 2
-  - 3
-  - 4
+  # - 1
+  # - 2
+  # - 3
+  # - 4
 
-feature_version: ${exp_name}
+feature_version: exp002
 retrieve_num: 25
 
 model:
@@ -29,12 +29,12 @@ model:
 trainer:
   epoch: 2
   batch_size: 8
-  gradient_accumulation_steps: 1
-  learning_rate: 1e-5
+  gradient_accumulation_steps: 16
+  learning_rate: 2e-5
   weight_decay: 0.01
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
-  lr_scheduler_type: cosine
+  lr_scheduler_type: cosine_with_restarts
   save_strategy: steps
   save_steps: 0.1  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
@@ -42,7 +42,7 @@ trainer:
   logging_steps: 0.1  # training_step全体の何%ごとにログを出力するか
   eval_strategy: steps
   eval_steps: 0.1  # training_step全体の何%ごとに評価するか
-  metric_for_best_model: eval_loss
+  # metric_for_best_model: eval_loss
   report_to: wandb
 
 

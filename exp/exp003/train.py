@@ -67,7 +67,8 @@ class TrainPipeline:
             df = df.sample(fraction=0.01)
 
         # dataset作成
-        self.train = df.filter(pl.col("fold") != fold)
+        # self.train = df.filter(pl.col("fold") != fold)
+        self.train = df  # debugのため学習データを全て使う
         self.valid = df.filter(pl.col("fold") == fold)
         # To create an anchor, positive, and negative structure,
         # delete rows where the positive and negative are identical.
