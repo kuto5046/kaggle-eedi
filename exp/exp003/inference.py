@@ -62,9 +62,12 @@ class InferencePipeline:
         return sorted_similarity
 
     def make_submission(self, df: pl.DataFrame, preds: list[np.ndarray]) -> None:
-        # アンサンブル用に絞る(25より大きめにしとく)
-        filter_preds = [pred[:, :30] for pred in preds]
-        pred = ensemble_predictions(filter_preds)
+        if len(preds) > 1:
+            # アンサンブル用に絞る(25より大きめにしとく)
+            filter_preds = [pred[:, :30] for pred in preds]
+            pred = ensemble_predictions(filter_preds)
+        else:
+            pred = preds[0]
         submission = (
             df.with_columns(pl.Series(pred[:, : self.cfg.retrieve_num].tolist()).alias("MisconceptionId"))
             .with_columns(
