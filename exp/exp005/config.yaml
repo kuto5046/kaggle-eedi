@@ -16,7 +16,7 @@ n_splits: 5
 use_fold: 0
 
 
-valid_unseen_misconception_rate: 0.5  # validの何割を未知のmisconceptionとするか
+valid_unseen_misconception_rate: 0.4  # validの何割を未知のmisconceptionとするか 単純なgroupkfoldで0.25程度
 
 feature_version: ${exp_name}
 

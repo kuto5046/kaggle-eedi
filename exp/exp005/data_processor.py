@@ -110,8 +110,10 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> p
 
 
 def upsampling_unseen(
-    valid: pl.DataFrame, unseen_misconception_ids: list[int], unseen_rate: float, seed: int
+    valid: pl.DataFrame, unseen_misconception_ids: list[int], unseen_rate: float | None, seed: int
 ) -> pl.DataFrame:
+    if unseen_rate is None:
+        return valid
     seen_valid = valid.filter(~pl.col("MisconceptionId").is_in(unseen_misconception_ids))
     unseen_valid = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconception_ids))
     current_unseen_rate = unseen_valid.shape[0] / valid.shape[0]
