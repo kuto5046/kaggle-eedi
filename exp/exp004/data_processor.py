@@ -6,7 +6,7 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 from sentence_transformers import SentenceTransformer
-from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.model_selection import GroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
 
@@ -73,9 +73,9 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
     return train
 
 
-def get_stratifiedgroupkfold(train: pl.DataFrame, n_splits: int, seed: int) -> pl.DataFrame:
-    kf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    cv = list(kf.split(X=train, y=train["MisconceptionId"].to_numpy(), groups=train["QuestionId"].to_numpy()))
+def get_groupkfold(train: pl.DataFrame, target_col: str, n_splits: int) -> pl.DataFrame:
+    kf = GroupKFold(n_splits=n_splits)
+    cv = list(kf.split(X=train, groups=train[target_col].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -107,6 +107,45 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> p
         )
     )
     return retrieved_df
+
+
+def upsampling_unseen(
+    valid: pl.DataFrame, unseen_misconception_ids: list[int], unseen_rate: float, seed: int
+) -> pl.DataFrame:
+    seen_valid = valid.filter(~pl.col("MisconceptionId").is_in(unseen_misconception_ids))
+    unseen_valid = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconception_ids))
+    current_unseen_rate = unseen_valid.shape[0] / valid.shape[0]
+    # unseen_rateがtarget_unseen_rateを超えるまでunseen_validから復元抽出
+    assert current_unseen_rate <= unseen_rate
+
+    # unseenをアップサンプリングしてtarget_unseen_rateにする
+    need_size = int((unseen_rate * valid.shape[0] - unseen_valid.shape[0]) / (1 - unseen_rate))
+    rng = np.random.default_rng(seed)
+    sampling_index = rng.integers(0, len(unseen_valid), need_size)
+    aug_unseen_valid = []
+    for idx in sampling_index:
+        aug_unseen_valid.append(unseen_valid.row(idx))
+    aug_unseen_valid = pl.DataFrame(aug_unseen_valid, schema=unseen_valid.schema)
+    unseen_valid = pl.concat([unseen_valid, aug_unseen_valid])
+
+    valid = pl.concat([seen_valid, unseen_valid])
+    return valid
+
+
+def adjust_unseen_rate(df: pl.DataFrame, fold: int, unseen_rate: float, seed: int) -> tuple[pl.DataFrame, pl.DataFrame]:
+    train = df.filter(pl.col("fold") != fold)
+    valid = df.filter(pl.col("fold") == fold)
+
+    train_misconception_ids = train["MisconceptionId"].to_list()
+    valid_misconception_ids = valid["MisconceptionId"].to_list()
+    # validにしか存在しない未知のmisconception_idを取得
+    unseen_misconceotion_ids = list(set(valid_misconception_ids) - set(train_misconception_ids))
+
+    valid = upsampling_unseen(valid, unseen_misconceotion_ids, unseen_rate, seed)
+    unseen_valid_size = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconceotion_ids)).shape[0]
+    unseen_rate = unseen_valid_size / valid.shape[0]
+    print(f"fold{fold}: unseen_misconception_rate={unseen_rate:.4f}")
+    return train, valid
 
 
 class DataProcessor:
@@ -144,17 +183,22 @@ class DataProcessor:
         df = create_retrieved(df, misconception_mapping)
         return df
 
-    def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
+    def add_fold(self, df: pl.DataFrame) -> None:
         if self.cfg.phase == "train":
-            return get_stratifiedgroupkfold(df, self.cfg.n_splits, self.cfg.seed)
+            df = get_groupkfold(df, "QuestionId", self.cfg.n_splits)
+            for fold in range(self.cfg.n_splits):
+                train, valid = adjust_unseen_rate(df, fold, self.cfg.valid_unseen_misconception_rate, self.cfg.seed)
+                # question_idに重複はない
+                assert set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list()) == set()
+                train.write_csv(self.output_dir / f"train_fold{fold}.csv")
+                valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
         else:
-            return df
+            df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df, misconception)
-        df = self.add_fold(df)
-        df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
+        self.add_fold(df)
 
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore
