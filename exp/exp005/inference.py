@@ -51,9 +51,8 @@ class InferencePipeline:
         misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
         return df, misconception_mapping
 
-    def setup_model(self, fold: int) -> SentenceTransformer:
-        model_path = self.model_dir / f"fold{fold}"
-        return SentenceTransformer(str(model_path))
+    def setup_model(self) -> SentenceTransformer:
+        return SentenceTransformer(str(self.model_dir))
 
     def inference(
         self, model: SentenceTransformer, df: pl.DataFrame, misconception_mapping: pl.DataFrame
@@ -79,12 +78,9 @@ class InferencePipeline:
     def run(self) -> None:
         df, misconception_mapping = self.setup_dataset()
         preds = []
-        for fold in range(self.cfg.n_splits):
-            if fold not in self.cfg.use_folds:
-                continue
-            model = self.setup_model(fold)
-            pred = self.inference(model, df, misconception_mapping)
-            preds.append(pred)
+        model = self.setup_model()
+        pred = self.inference(model, df, misconception_mapping)
+        preds.append(pred)
         self.make_submission(df, preds)
 
 
