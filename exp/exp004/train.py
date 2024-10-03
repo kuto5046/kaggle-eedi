@@ -61,7 +61,7 @@ class TrainPipeline:
             self.cfg.path.feature_dir / self.cfg.feature_version / f"train_fold{self.cfg.use_fold}.csv"
         )
         self.valid = pl.read_csv(
-            self.cfg.path.feature_dir / self.cfg.feature_version / f"train_fold{self.cfg.use_fold}.csv"
+            self.cfg.path.feature_dir / self.cfg.feature_version / f"valid_fold{self.cfg.use_fold}.csv"
         )
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
