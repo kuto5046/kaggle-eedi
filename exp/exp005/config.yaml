@@ -1,4 +1,4 @@
-exp_name: exp004
+exp_name: exp005
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "unseen_rateを設定しgroupkfoldでcv unseen: 0.5"
 tags: []

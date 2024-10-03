@@ -1,6 +1,6 @@
-exp_name: exp004
+exp_name: exp007
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "unseen_rateを設定しgroupkfoldでcv unseen: 0.5"
+notes: "unseen_rateを設定しgroupkfoldでcv unseen調整なし"
 tags: []
 
 defaults:
@@ -16,7 +16,7 @@ n_splits: 5
 use_fold: 0
 
 
-valid_unseen_misconception_rate: 0.5  # validの何割を未知のmisconceptionとするか 単純なgroupkfoldで0.25程度
+valid_unseen_misconception_rate: null  # validの何割を未知のmisconceptionとするか 単純なgroupkfoldで0.25程度 nullの場合調整しない
 
 feature_version: ${exp_name}
 
