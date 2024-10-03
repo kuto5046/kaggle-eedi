@@ -1,10 +1,8 @@
-import gc
 import logging
 from pathlib import Path
 
 import hydra
 import numpy as np
-import torch
 import polars as pl
 from datasets import Dataset
 from lightning import seed_everything
@@ -15,11 +13,12 @@ from sentence_transformers import (
     SentenceTransformerTrainer,
     SentenceTransformerTrainingArguments,
 )
-from sklearn.metrics.pairwise import cosine_similarity
 from sentence_transformers.losses import MultipleNegativesRankingLoss
 from sentence_transformers.training_args import BatchSamplers
 
 import wandb
+
+from .data_processor import sentence_emb_similarity
 
 LOGGER = logging.getLogger(__name__)
 
@@ -47,8 +46,6 @@ class TrainPipeline:
         self.common_cols = ["QuestionId", "ConstructName", "SubjectName", "QuestionText", "CorrectAnswer"]
 
         self.cfg = cfg
-        self.oofs: list[pl.DataFrame] = []
-        self.scores: list[float] = []
         self.debug_config()
         assert cfg.phase == "train", "TrainPipeline only supports train phase"
 
@@ -59,16 +56,19 @@ class TrainPipeline:
             self.cfg.trainer.logging_steps = 0.5
             self.cfg.trainer.eval_steps = 0.5
 
-    def setup_dataset(self, fold: int) -> None:
-        df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "train.csv")
+    def setup_dataset(self) -> None:
+        self.train = pl.read_csv(
+            self.cfg.path.feature_dir / self.cfg.feature_version / f"train_fold{self.cfg.use_fold}.csv"
+        )
+        self.valid = pl.read_csv(
+            self.cfg.path.feature_dir / self.cfg.feature_version / f"train_fold{self.cfg.use_fold}.csv"
+        )
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         if self.cfg.debug:
-            df = df.sample(fraction=0.01)
+            self.train = self.train.sample(fraction=0.01)
+            self.valid = self.valid.sample(fraction=0.01)
 
-        # dataset作成
-        self.train = df.filter(pl.col("fold") != fold)
-        self.valid = df.filter(pl.col("fold") == fold)
         # To create an anchor, positive, and negative structure,
         # delete rows where the positive and negative are identical.
         self.train_dataset = (
@@ -92,27 +92,25 @@ class TrainPipeline:
             )
         )
 
-    def setup_logger(self, fold: int) -> None:
+    def setup_logger(self) -> None:
         wandb.init(  # type: ignore
             project="kaggle-eedi",
             entity="kuto5046",
-            name=f"{self.cfg.exp_name}_{self.cfg.run_name}_fold{fold}",
+            name=f"{self.cfg.exp_name}_{self.cfg.run_name}_fold{self.cfg.use_fold}",
             group=self.cfg.exp_name,
             tags=self.cfg.tags,
             mode="disabled" if self.cfg.debug else "online",
             notes=self.cfg.notes,
         )
 
-    def training(self, fold: int) -> None:
-        output_dir = self.output_dir / f"fold{fold}"
-        output_dir.mkdir(parents=True, exist_ok=True)
+    def training(self) -> None:
         self.model = SentenceTransformer(self.cfg.model.name)
 
         loss = MultipleNegativesRankingLoss(self.model)
         params = self.cfg.trainer
         args = SentenceTransformerTrainingArguments(
             # Required parameter:
-            output_dir=output_dir,
+            output_dir=self.output_dir,
             # Optional training parameters:
             num_train_epochs=params.epoch,
             per_device_train_batch_size=params.batch_size,
@@ -143,65 +141,31 @@ class TrainPipeline:
             do_eval=True,
         )
 
-        self.trainer = SentenceTransformerTrainer(
+        trainer = SentenceTransformerTrainer(
             model=self.model, args=args, train_dataset=self.train_dataset, eval_dataset=self.valid_dataset, loss=loss
         )
 
-        self.trainer.train()
-        self.model.save_pretrained(path=str(output_dir))
+        trainer.train()
+        self.model.save_pretrained(path=str(self.output_dir))
 
-    def evaluate(self, fold: int) -> None:
+    def evaluate(self) -> None:
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId", "fold"]).unique()
-        all_text_vec = self.model.encode(oof["AllText"].to_list(), normalize_embeddings=True)
-        misconception_mapping_vec = self.model.encode(
-            self.misconception_mapping["MisconceptionName"].to_list(), normalize_embeddings=True
-        )
-        similarity = cosine_similarity(all_text_vec, misconception_mapping_vec)
-        sorted_similarity = np.argsort(-similarity, axis=1)
+        sorted_similarity = sentence_emb_similarity(oof, self.misconception_mapping, self.model, self.cfg)
         oof = (
             oof.drop("AllText")
             .with_columns(pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("pred"))
             .with_columns(pl.col("pred").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
         )
-        oof.write_csv(self.output_dir / f"oof_{fold}.csv")
+        oof.write_csv(self.output_dir / "oof.csv")
         score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
         LOGGER.info(f"CV: {score}")
         wandb.log({"CV": score})  # type: ignore
-        self.oofs.append(oof)
-        self.scores.append(score)
-
-    def reset(self) -> None:
-        if hasattr(self, "model"):
-            del self.model
-
-        if hasattr(self, "train_dataset"):
-            del self.train_dataset
-
-        if hasattr(self, "valid_dataset"):
-            del self.valid_dataset
-
-        if hasattr(self, "trainer"):
-            del self.trainer
-
-        gc.collect()
-        torch.cuda.empty_cache()
 
     def run(self) -> None:
-        for fold in self.cfg.use_folds:
-            self.reset()
-            self.setup_logger(fold)
-            self.setup_dataset(fold)
-            self.training(fold)
-            self.evaluate(fold)
-            # 最後のfold以外であればwandbをfinishする
-            if fold != self.cfg.use_folds[-1]:
-                wandb.finish()  # type: ignore
-
-        oof = pl.concat(self.oofs).sort("QuestionId_Answer")
-        oof.write_csv(self.output_dir / "oof.csv")
-        score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
-        LOGGER.info(f"ALL CV: {score}")
-        wandb.log({"ALL CV": score})  # type: ignore
+        self.setup_logger()
+        self.setup_dataset()
+        self.training()
+        self.evaluate()
         wandb.finish()  # type: ignore
 
 
