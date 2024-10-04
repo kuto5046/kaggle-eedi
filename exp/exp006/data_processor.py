@@ -109,45 +109,28 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> p
     return retrieved_df
 
 
-def upsampling_unseen(
-    valid: pl.DataFrame, unseen_misconception_ids: list[int], unseen_rate: float | None, seed: int
-) -> pl.DataFrame:
-    if unseen_rate is None:
-        return valid
-    seen_valid = valid.filter(~pl.col("MisconceptionId").is_in(unseen_misconception_ids))
-    unseen_valid = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconception_ids))
-    current_unseen_rate = unseen_valid.shape[0] / valid.shape[0]
-    # unseen_rateがtarget_unseen_rateを超えるまでunseen_validから復元抽出
-    assert current_unseen_rate <= unseen_rate
-
-    # unseenをアップサンプリングしてtarget_unseen_rateにする
-    need_size = int((unseen_rate * valid.shape[0] - unseen_valid.shape[0]) / (1 - unseen_rate))
-    rng = np.random.default_rng(seed)
-    sampling_index = rng.integers(0, len(unseen_valid), need_size)
-    aug_unseen_valid = []
-    for idx in sampling_index:
-        aug_unseen_valid.append(unseen_valid.row(idx))
-    aug_unseen_valid = pl.DataFrame(aug_unseen_valid, schema=unseen_valid.schema)
-    unseen_valid = pl.concat([unseen_valid, aug_unseen_valid])
-
-    valid = pl.concat([seen_valid, unseen_valid])
-    return valid
+def adjust_unseen_rate(
+    seen: pl.DataFrame, unseen: pl.DataFrame, fold: int, unseen_valid_rate: float, seed: int
+) -> tuple[pl.DataFrame, pl.DataFrame]:
+    train = seen.filter(pl.col("fold") != fold).drop("fold")
+    valid = seen.filter(pl.col("fold") == fold).drop("fold")
+    unseen_valid = unseen.sample(fraction=unseen_valid_rate, seed=seed)
+    unseen_train = unseen.filter(~pl.col("QuestionId").is_in(unseen_valid["QuestionId"].to_list()))
+    train = pl.concat([train, unseen_train])
+    valid = pl.concat([valid, unseen_valid])
+    unseen_rate = calcuate_unseen_rate(train, valid)
+    valid_rate = len(valid) / (len(train) + len(valid))
+    print(f"fold{fold}: unseen_rate={unseen_rate:.4f}, valid_rate={valid_rate:.4f}")
+    return train, valid
 
 
-def adjust_unseen_rate(df: pl.DataFrame, fold: int, unseen_rate: float, seed: int) -> tuple[pl.DataFrame, pl.DataFrame]:
-    train = df.filter(pl.col("fold") != fold)
-    valid = df.filter(pl.col("fold") == fold)
-
+def calcuate_unseen_rate(train: pl.DataFrame, valid: pl.DataFrame) -> float:
     train_misconception_ids = train["MisconceptionId"].to_list()
     valid_misconception_ids = valid["MisconceptionId"].to_list()
-    # validにしか存在しない未知のmisconception_idを取得
-    unseen_misconceotion_ids = list(set(valid_misconception_ids) - set(train_misconception_ids))
-
-    valid = upsampling_unseen(valid, unseen_misconceotion_ids, unseen_rate, seed)
-    unseen_valid_size = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconceotion_ids)).shape[0]
-    unseen_rate = unseen_valid_size / valid.shape[0]
-    print(f"fold{fold}: unseen_misconception_rate={unseen_rate:.4f}")
-    return train, valid
+    # unseen rateを計算
+    unseen_misconception_ids = list(set(valid_misconception_ids) - set(train_misconception_ids))
+    unseen_rate = len(unseen_misconception_ids) / len(valid_misconception_ids)
+    return unseen_rate
 
 
 class DataProcessor:
@@ -167,15 +150,33 @@ class DataProcessor:
         misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
         return df, misconception_mapping
 
-    def preprocess(self, input_df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
+    def preprocess(self, input_df: pl.DataFrame) -> pl.DataFrame:
         df = preprocess_table(input_df, self.common_cols)
         if self.cfg.phase == "test":
             return df
+        else:
+            # misconception情報(target)を取得
+            pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
+            df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
+            df = df.filter(pl.col("MisconceptionId").is_not_null())
+            return df
 
-        # misconception情報(target)を取得
-        pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
-        df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
+    def add_fold(self, df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
+        # 移動させるのはそれを移動させるとtrainには存在しなくなるmisconception.
+        # 簡単なので、misconceptionIdが1つしかないものを探す
+        candidate_misconception_ids = (
+            df.group_by("MisconceptionId").len().filter(pl.col("len") == 1)["MisconceptionId"].to_list()
+        )
+        # 未知のmisconception用(unseen)として分けておく
+        unseen = df.filter(pl.col("MisconceptionId").is_in(candidate_misconception_ids))
 
+        # unseenを除くデータでfoldを作成
+        # 実際にはseenにもunseenが含まれている。これにunseenからさらに追加してunseen_rateを調整する
+        seen = df.filter(~pl.col("QuestionId").is_in(unseen["QuestionId"].to_list()))
+        seen = get_groupkfold(seen, "QuestionId", self.cfg.n_splits)
+        return seen, unseen
+
+    def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
         # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
         model = SentenceTransformer(self.cfg.model.name)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model, self.cfg)
@@ -185,22 +186,22 @@ class DataProcessor:
         df = create_retrieved(df, misconception_mapping)
         return df
 
-    def add_fold(self, df: pl.DataFrame) -> None:
+    def run(self) -> None:
+        df, misconception = self.read_data()
+        df = self.preprocess(df)
         if self.cfg.phase == "train":
-            df = get_groupkfold(df, "QuestionId", self.cfg.n_splits)
+            seen, unseen = self.add_fold(df)
             for fold in range(self.cfg.n_splits):
-                train, valid = adjust_unseen_rate(df, fold, self.cfg.valid_unseen_misconception_rate, self.cfg.seed)
-                # question_idに重複はない
-                assert set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list()) == set()
+                train, valid = adjust_unseen_rate(seen, unseen, fold, self.cfg.unseen_valid_rate, self.cfg.seed)
+                # 必ずtrainとvalidでQuestionIdが被らないようにする
+                assert len(set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list())) == 0
+                train = self.generate_candidates(train, misconception)
+                valid = self.generate_candidates(valid, misconception)
                 train.write_csv(self.output_dir / f"train_fold{fold}.csv")
                 valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
         else:
-            df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
-
-    def run(self) -> None:
-        df, misconception = self.read_data()
-        df = self.preprocess(df, misconception)
-        self.add_fold(df)
+            test = self.generate_candidates(df, misconception)
+            test.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore
