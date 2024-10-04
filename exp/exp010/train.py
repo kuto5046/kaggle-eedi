@@ -154,7 +154,7 @@ class TrainPipeline:
 
     def evaluate(self) -> None:
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-        sorted_similarity = sentence_emb_similarity(oof, self.misconception_mapping, self.model, self.cfg)
+        sorted_similarity = sentence_emb_similarity(oof, self.misconception_mapping, self.model)
         oof = (
             oof.drop("AllText")
             .with_columns(pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("pred"))
