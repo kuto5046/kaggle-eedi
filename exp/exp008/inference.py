@@ -62,7 +62,7 @@ class InferencePipeline:
 
     def make_submission(self, df: pl.DataFrame, preds: list[np.ndarray]) -> None:
         # アンサンブル用に絞る(25より大きめにしとく)
-        filter_preds = [pred[:, :30] for pred in preds]
+        filter_preds = [pred[:, : self.cfg.retrieve_num + 10] for pred in preds]
         pred = ensemble_predictions(filter_preds)
         submission = (
             df.with_columns(pl.Series(pred[:, : self.cfg.retrieve_num].tolist()).alias("MisconceptionId"))
