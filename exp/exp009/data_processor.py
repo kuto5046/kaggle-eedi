@@ -12,6 +12,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 LOGGER = logging.getLogger(__name__)
 
+# trainデータに含まれるmisconceptionのユニーク数
+ORIGINAL_TRAIN_UNIQUE_MISCONCEPTION_SIZE = 1604
+
 
 def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
     long_df = (
@@ -120,7 +123,7 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> p
     return retrieved_df
 
 
-def adjust_unseen_rate(
+def adjust_unseen(
     seen: pl.DataFrame, unseen: pl.DataFrame, fold: int, unseen_valid_rate: float, seed: int
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
     train = seen.filter(pl.col("fold") != fold).drop("fold")
@@ -131,8 +134,8 @@ def adjust_unseen_rate(
     valid = pl.concat([valid, unseen_valid])
     unseen_rate = calcuate_unseen_rate(train, valid)
     valid_rate = len(valid) / (len(train) + len(valid))
-
-    LOGGER.info(f"fold{fold}: unseen_rate={unseen_rate:.4f}, valid_rate={valid_rate:.4f}")
+    train_misconception_rate = len(train["MisconceptionId"].unique()) / ORIGINAL_TRAIN_UNIQUE_MISCONCEPTION_SIZE
+    LOGGER.info(f"{fold=}: {unseen_rate=:.3%}, {valid_rate=:.3%} {train_misconception_rate=:.3%}")
     return train, valid
 
 
@@ -174,8 +177,7 @@ class DataProcessor:
             return df
 
     def add_fold(self, df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
-        # 移動させるのはそれを移動させるとtrainには存在しなくなるmisconception.
-        # 簡単なので、misconceptionIdが1つしかないものを探す
+        # trainデータに1度しか出現していないmisconceptionIdを抽出し、unseenとして分ける
         candidate_misconception_ids = (
             df.group_by("MisconceptionId").len().filter(pl.col("len") == 1)["MisconceptionId"].to_list()
         )
@@ -183,7 +185,7 @@ class DataProcessor:
         unseen = df.filter(pl.col("MisconceptionId").is_in(candidate_misconception_ids))
 
         # unseenを除くデータでfoldを作成
-        # 実際にはseenにもunseenが含まれている。これにunseenからさらに追加してunseen_rateを調整する
+        # 実際にはseenにもunseenが含まれている。これにunseenを結合してunseen_rateを調整する
         seen = df.filter(~pl.col("QuestionId").is_in(unseen["QuestionId"].to_list()))
         seen = get_stratifiedgroupkfold(
             seen, target_col="MisconceptionId", group_col="QuestionId", n_splits=self.cfg.n_splits, seed=self.cfg.seed
@@ -206,13 +208,15 @@ class DataProcessor:
         if self.cfg.phase == "train":
             seen, unseen = self.add_fold(df)
             for fold in range(self.cfg.n_splits):
-                train, valid = adjust_unseen_rate(seen, unseen, fold, self.cfg.unseen_valid_rate, self.cfg.seed)
+                train, valid = adjust_unseen(seen, unseen, fold, self.cfg.unseen_valid_rate, self.cfg.seed)
                 # 必ずtrainとvalidでQuestionIdが被らないようにする
                 assert len(set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list())) == 0
                 train = self.generate_candidates(train, misconception)
                 valid = self.generate_candidates(valid, misconception)
                 train.write_csv(self.output_dir / f"train_fold{fold}.csv")
                 valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
+                # hold-outで利用するのでfold=0のみ保存
+                break
         else:
             df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
