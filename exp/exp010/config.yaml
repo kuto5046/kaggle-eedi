@@ -1,6 +1,6 @@
-exp_name: exp009
+exp_name: exp010
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "unseen=77% train_misconception_rate=62%"
+notes: "unseen=83% train_misconception_rate=62%"
 tags: []
 
 defaults:
@@ -12,7 +12,7 @@ seed: 2024
 debug: false
 phase: train  # train, test
 # cv
-n_splits: 20  # hold-outで使うので実質fold=0しか使わない
+n_splits: 30  # hold-outで使うので実質fold=0しか使わない
 use_fold: 0
 
 feature_version: ${exp_name}
