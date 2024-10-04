@@ -1,6 +1,6 @@
-exp_name: exp010
+exp_name: exp011
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "unseen=83% train_misconception_rate=62%"
+notes: "候補数を100にする"
 tags: []
 
 defaults:
@@ -22,6 +22,7 @@ feature_version: ${exp_name}
 unseen_valid_rate: 0.6
 
 retrieve_num: 25
+num_candidates: 100  # 1つの学習データに紐づける負例の候補数
 
 model:
   name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する

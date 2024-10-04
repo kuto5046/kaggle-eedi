@@ -199,7 +199,7 @@ class DataProcessor:
         model = SentenceTransformer(self.cfg.model.name)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         df = df.with_columns(
-            pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
+            pl.Series(sorted_similarity[:, : self.cfg.num_candidates].tolist()).alias("PredictMisconceptionId")
         )
         df = create_retrieved(df, misconception_mapping)
         return df
