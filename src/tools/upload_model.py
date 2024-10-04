@@ -14,7 +14,8 @@ TARGET_EXP_NAMES = [
     # "exp001",
     # "exp002",
     # "exp003",
-    "exp005",
+    # "exp005",
+    "exp006",
 ]
 
 
