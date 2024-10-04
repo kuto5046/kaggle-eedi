@@ -149,7 +149,7 @@ class TrainPipeline:
         self.model.save_pretrained(path=str(self.output_dir))
 
     def evaluate(self) -> None:
-        oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId", "fold"]).unique()
+        oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
         sorted_similarity = sentence_emb_similarity(oof, self.misconception_mapping, self.model, self.cfg)
         oof = (
             oof.drop("AllText")

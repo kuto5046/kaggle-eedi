@@ -16,7 +16,7 @@ n_splits: 5
 use_fold: 0
 
 feature_version: ${exp_name}
-unseen_valid_rate: 0.7
+unseen_valid_rate: 0.7  # unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
 retrieve_num: 25
 
 model:
