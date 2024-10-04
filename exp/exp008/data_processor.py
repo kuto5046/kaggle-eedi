@@ -7,7 +7,7 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 from sentence_transformers import SentenceTransformer
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
 LOGGER = logging.getLogger(__name__)
@@ -79,6 +79,14 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
 def get_groupkfold(train: pl.DataFrame, target_col: str, n_splits: int) -> pl.DataFrame:
     kf = GroupKFold(n_splits=n_splits)
     cv = list(kf.split(X=train, groups=train[target_col].to_numpy()))
+    return get_fold(train, cv)
+
+
+def get_stratifiedgroupkfold(
+    train: pl.DataFrame, target_col: str, group_col: str, n_splits: int, seed: int
+) -> pl.DataFrame:
+    kf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    cv = list(kf.split(X=train, y=train[target_col].to_numpy(), groups=train[group_col].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -177,7 +185,9 @@ class DataProcessor:
         # unseenを除くデータでfoldを作成
         # 実際にはseenにもunseenが含まれている。これにunseenからさらに追加してunseen_rateを調整する
         seen = df.filter(~pl.col("QuestionId").is_in(unseen["QuestionId"].to_list()))
-        seen = get_groupkfold(seen, "QuestionId", self.cfg.n_splits)
+        seen = get_stratifiedgroupkfold(
+            seen, target_col="MisconceptionId", group_col="QuestionId", n_splits=self.cfg.n_splits, seed=self.cfg.seed
+        )
         return seen, unseen
 
     def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
