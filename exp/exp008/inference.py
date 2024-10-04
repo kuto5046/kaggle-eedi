@@ -74,6 +74,10 @@ class InferencePipeline:
             .sort("QuestionId_Answer")
         )
         submission.write_csv(self.cfg.path.sub_dir / "submission.csv")
+        # アンサンブル用
+        output_dir = self.cfg.path.output_dir / self.cfg.exp_name / self.cfg.run_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        submission.write_csv(output_dir / "submission.csv")
 
     def run(self) -> None:
         df, misconception_mapping = self.setup_dataset()
