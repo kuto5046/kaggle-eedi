@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 
 import hydra
@@ -8,6 +9,8 @@ from omegaconf import DictConfig
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
+
+LOGGER = logging.getLogger(__name__)
 
 
 def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
@@ -69,7 +72,7 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
         train = train.with_columns(
             pl.when(pl.arange(0, len(train)).is_in(valid_idx)).then(fold).otherwise(pl.col("fold")).alias("fold")
         )
-    print(train.group_by("fold").len().sort("fold"))
+    LOGGER.info(train.group_by("fold").len().sort("fold"))
     return train
 
 
@@ -120,7 +123,8 @@ def adjust_unseen_rate(
     valid = pl.concat([valid, unseen_valid])
     unseen_rate = calcuate_unseen_rate(train, valid)
     valid_rate = len(valid) / (len(train) + len(valid))
-    print(f"fold{fold}: unseen_rate={unseen_rate:.4f}, valid_rate={valid_rate:.4f}")
+
+    LOGGER.info(f"fold{fold}: unseen_rate={unseen_rate:.4f}, valid_rate={valid_rate:.4f}")
     return train, valid
 
 

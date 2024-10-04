@@ -1,4 +1,4 @@
-exp_name: exp006
+exp_name: exp007
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "unseen_rateを設定"
 tags: []
@@ -16,7 +16,7 @@ n_splits: 5
 use_fold: 0
 
 feature_version: ${exp_name}
-unseen_valid_rate: 0.7  # unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
+unseen_valid_rate: 0.9  # unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
 retrieve_num: 25
 
 model:
