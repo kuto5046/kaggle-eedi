@@ -94,7 +94,9 @@ def get_stratifiedgroupkfold(
 
 
 def sentence_emb_similarity(
-    df: pl.DataFrame, misconception_mapping: pl.DataFrame, model: SentenceTransformer, cfg: DictConfig
+    df: pl.DataFrame,
+    misconception_mapping: pl.DataFrame,
+    model: SentenceTransformer,
 ) -> np.ndarray:
     text_vec = model.encode(df["AllText"].to_list(), normalize_embeddings=True)
     misconception_mapping_vec = model.encode(
@@ -195,7 +197,7 @@ class DataProcessor:
     def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
         # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
         model = SentenceTransformer(self.cfg.model.name)
-        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model, self.cfg)
+        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         df = df.with_columns(
             pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
         )
