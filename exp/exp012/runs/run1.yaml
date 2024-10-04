@@ -3,4 +3,4 @@ run_name: run0
 use_fold: 0
 
 trainer:
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 2
