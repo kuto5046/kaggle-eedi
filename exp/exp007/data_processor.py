@@ -204,8 +204,7 @@ class DataProcessor:
                 train.write_csv(self.output_dir / f"train_fold{fold}.csv")
                 valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
         else:
-            test = self.generate_candidates(df, misconception)
-            test.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
+            df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore
