@@ -12,7 +12,7 @@ seed: 2024
 debug: false
 phase: train  # train, test
 # cv
-n_splits: 30  # hold-outで使うので実質fold=0しか使わない
+n_splits: 20  # hold-outで使うので実質fold=0しか使わない
 use_fold: 0
 
 feature_version: ${exp_name}
