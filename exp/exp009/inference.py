@@ -57,7 +57,7 @@ class InferencePipeline:
     def inference(
         self, model: SentenceTransformer, df: pl.DataFrame, misconception_mapping: pl.DataFrame
     ) -> np.ndarray:
-        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model, self.cfg)
+        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         return sorted_similarity
 
     def make_submission(self, df: pl.DataFrame, preds: list[np.ndarray]) -> None:
