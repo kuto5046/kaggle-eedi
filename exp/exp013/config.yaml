@@ -15,7 +15,7 @@ phase: train  # train, test
 n_splits: 30  # hold-outで使うので実質fold=0しか使わない
 use_fold: 0
 
-feature_version: exp009
+feature_version: exp010
 
 # unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
 # ここ大きくすると全trainのうち何割のmisconceptionがtrainに含まれるかが小さくなる
