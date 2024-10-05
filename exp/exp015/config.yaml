@@ -1,4 +1,4 @@
-exp_name: exp014
+exp_name: exp015
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "weight decay, lrをtuning"
 tags: []
