@@ -1,2 +1,5 @@
 # @package _global_
 run_name: run0
+notes: "weight_decay:0.05"
+trainer:
+  weight_decay: 0.05

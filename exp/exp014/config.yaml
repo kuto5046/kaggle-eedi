@@ -1,6 +1,6 @@
-exp_name: exp013
+exp_name: exp014
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "gradient accumlate stepをtuning"
+notes: "weight decay, lrをtuning"
 tags: []
 
 defaults:
@@ -32,7 +32,7 @@ trainer:
   batch_size: 16
   gradient_accumulation_steps: 32  # 128 // batch_size
   learning_rate: 2e-5
-  weight_decay: 0.01
+  weight_decay: 0.1
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
   lr_scheduler_type: cosine_with_restarts

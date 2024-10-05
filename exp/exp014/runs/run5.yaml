@@ -1,0 +1,5 @@
+# @package _global_
+run_name: run5
+notes: "warmup rate: 0.2"
+trainer:
+   warmup_rate: 0.2
