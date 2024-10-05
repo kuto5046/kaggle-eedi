@@ -28,7 +28,7 @@ model:
   name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する
 
 trainer:
-  epoch: 2
+  epoch: 3
   batch_size: 16
   gradient_accumulation_steps: 32  # 128 // batch_size
   learning_rate: 2e-5

@@ -1,5 +1,0 @@
-# @package _global_
-run_name: run3
-notes: "lr:5e-5"
-trainer:
-   learning_rate: 5e-5
