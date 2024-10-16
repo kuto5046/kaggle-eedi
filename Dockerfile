@@ -1,5 +1,6 @@
 # pytorch versionに注意
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+# runtimeはnvccが含まれずvllmなどを利用することができないため、完全なイメージであるdevelを利用
+FROM nvidia/cuda:12.1.0-cudnn8-devel-ubuntu22.04
 
 # 時間設定
 RUN ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime
@@ -44,7 +45,9 @@ RUN apt-get -y update && apt-get install -y \
     xonsh \
     nodejs \
     npm \
-    curl
+    curl \
+    # vllmを入れる際にglobalにpythonが必要
+    python3-dev
 
 # node js を最新Verにする
 RUN npm -y install n -g && \
