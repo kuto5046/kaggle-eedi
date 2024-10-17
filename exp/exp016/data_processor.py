@@ -1,11 +1,14 @@
+import re
 import logging
 from pathlib import Path
 
+import vllm
 import hydra
 import numpy as np
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
+from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
@@ -14,6 +17,69 @@ LOGGER = logging.getLogger(__name__)
 
 # trainデータに含まれるmisconceptionのユニーク数
 ORIGINAL_TRAIN_UNIQUE_MISCONCEPTION_SIZE = 1604
+
+
+def add_llm_misconception_features(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
+    # プロンプト生成
+    tokenizer = AutoTokenizer.from_pretrained(cfg.llm.model.model)
+    prompt = """
+    Question: {Question}
+    Incorrect Answer: {IncorrectAnswer}
+    Correct Answer: {CorrectAnswer}
+    Construct Name: {ConstructName}
+    Subject Name: {SubjectName}
+
+    Your task: Identify the misconception behind Incorrect Answer.
+    Answer concisely and generically inside <response>$$INSERT TEXT HERE$$</response>.
+    Before answering the question think step by step concisely in 1-2 sentence
+    inside <thinking>$$INSERT TEXT HERE$$</thinking> tag and
+    respond your final misconception inside <response>$$INSERT TEXT HERE$$</response> tag.
+    """
+    texts = [apply_template(row, tokenizer, prompt) for row in df.iter_rows(named=True)]
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
+
+    # LLMによるmisconception予測
+    llm = vllm.LLM(**cfg.llm.model)
+    tokenizer = llm.get_tokenizer()
+    prompts = df["Prompt"].to_numpy()
+    sampling_params = vllm.SamplingParams(**cfg.llm.sampling)
+    full_responses = llm.generate(prompts=prompts, sampling_params=sampling_params, use_tqdm=True)
+
+    def extract_response(text: str) -> str:
+        return ",".join(re.findall(r"<response>(.*?)</response>", text)).strip()
+
+    responses = [extract_response(x.outputs[0].text) for x in full_responses]
+    df = df.with_columns(pl.Series(responses).alias("LLMMisconception"))
+    df = df.with_columns(
+        pl.concat_str(
+            [
+                pl.col("ConstructName"),
+                pl.col("SubjectName"),
+                pl.col("QuestionText"),
+                pl.col("AnswerText"),
+                pl.col("LLMMisconception"),
+            ],
+            separator=" ",
+        ).alias("AllText")
+    )
+    return df
+
+
+def apply_template(row: pl.Series, tokenizer: AutoTokenizer, prompt: str) -> str:
+    messages = [
+        {
+            "role": "user",
+            "content": prompt.format(
+                ConstructName=row["ConstructName"],
+                SubjectName=row["SubjectName"],
+                Question=row["QuestionText"],
+                IncorrectAnswer=row["CorrectAnswer"],
+                CorrectAnswer=row["AnswerText"],
+            ),
+        }
+    ]
+    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    return text
 
 
 def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
@@ -25,15 +91,15 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
             value_name="AnswerText",
         )
         .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("ConstructName"),
-                    pl.col("SubjectName"),
-                    pl.col("QuestionText"),
-                    pl.col("AnswerText"),
-                ],
-                separator=" ",
-            ).alias("AllText"),
+            # pl.concat_str(
+            #     [
+            #         pl.col("ConstructName"),
+            #         pl.col("SubjectName"),
+            #         pl.col("QuestionText"),
+            #         pl.col("AnswerText"),
+            #     ],
+            #     separator=" ",
+            # ).alias("AllText"),
             pl.col("AnswerType").str.extract(r"Answer([A-D])Text$").alias("AnswerAlphabet"),
         )
         .with_columns(
@@ -204,9 +270,14 @@ class DataProcessor:
         df = create_retrieved(df, misconception_mapping)
         return df
 
+    def feature_engineering(self, df: pl.DataFrame) -> pl.DataFrame:
+        df = add_llm_misconception_features(df, self.cfg)
+        return df
+
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df)
+        df = self.feature_engineering(df)
         if self.cfg.phase == "train":
             seen, unseen = self.add_fold(df)
             for fold in range(self.cfg.n_splits):

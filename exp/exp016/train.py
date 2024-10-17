@@ -44,7 +44,6 @@ class TrainPipeline:
 
         # hydraのrun_dirに同じpathが設定されているので自動でディレクトリが作成される
         self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
-        self.common_cols = ["QuestionId", "ConstructName", "SubjectName", "QuestionText", "CorrectAnswer"]
 
         self.cfg = cfg
         self.debug_config()
