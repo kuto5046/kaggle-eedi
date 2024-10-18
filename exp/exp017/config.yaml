@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp016
+exp_name: exp017
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "LLMにmisconceptionを予測させたものを特徴量に追加"
 tags: []
@@ -38,11 +38,11 @@ model:
 llm:
   model:
     model: hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4
-    quantization: awq
+    quantization: null
     tensor_parallel_size: 1
     gpu_memory_utilization: 0.95
     trust_remote_code: true
-    dtype: half
+    dtype: auto
     enforce_eager: true
     max_model_len: 8192
     disable_log_stats: true
