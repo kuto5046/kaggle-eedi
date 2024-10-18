@@ -1,6 +1,6 @@
-exp_name: exp015
+exp_name: exp018
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "weight decay, lrをtuning"
+notes: "AllTextをtakaito方式"
 tags: []
 
 defaults:
@@ -15,7 +15,7 @@ phase: train  # train, test
 n_splits: 30  # hold-outで使うので実質fold=0しか使わない
 use_fold: 0
 
-feature_version: exp010
+feature_version: ${exp_name}
 
 # unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
 # ここ大きくすると全trainのうち何割のmisconceptionがtrainに含まれるかが小さくなる

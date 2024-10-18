@@ -27,9 +27,13 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
         .with_columns(
             pl.concat_str(
                 [
+                    pl.lit("<Construct>"),
                     pl.col("ConstructName"),
+                    pl.lit("<Subject>"),
                     pl.col("SubjectName"),
+                    pl.lit("<Question>"),
                     pl.col("QuestionText"),
+                    pl.lit("<Answer>"),
                     pl.col("AnswerText"),
                 ],
                 separator=" ",
