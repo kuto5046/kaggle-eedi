@@ -91,15 +91,15 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
             value_name="AnswerText",
         )
         .with_columns(
-            # pl.concat_str(
-            #     [
-            #         pl.col("ConstructName"),
-            #         pl.col("SubjectName"),
-            #         pl.col("QuestionText"),
-            #         pl.col("AnswerText"),
-            #     ],
-            #     separator=" ",
-            # ).alias("AllText"),
+            pl.concat_str(
+                [
+                    pl.col("ConstructName"),
+                    pl.col("SubjectName"),
+                    pl.col("QuestionText"),
+                    pl.col("AnswerText"),
+                ],
+                separator=" ",
+            ).alias("AllText"),
             pl.col("AnswerType").str.extract(r"Answer([A-D])Text$").alias("AnswerAlphabet"),
         )
         .with_columns(
@@ -129,6 +129,13 @@ def preprocess_misconception(df: pl.DataFrame, common_cols: list[str]) -> pl.Dat
         .with_columns(pl.col("MisconceptionId").cast(pl.Int64))
     )
     return misconception
+
+
+def calc_recall(df: pl.DataFrame) -> float:
+    return (
+        df.filter(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))["QuestionId_Answer"].n_unique()
+        / df["QuestionId_Answer"].n_unique()
+    )
 
 
 def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> pl.DataFrame:
@@ -173,8 +180,8 @@ def sentence_emb_similarity(
     return sorted_similarity
 
 
-def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
-    retrieved_df = (
+def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
+    df = (
         df.filter(
             pl.col("MisconceptionId").is_not_null()  # TODO: Consider ways to utilize data where MisconceptionId is NaN.
         )
@@ -188,7 +195,35 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> p
             on="PredictMisconceptionId",
         )
     )
-    return retrieved_df
+
+    tmp = (
+        df.with_columns((pl.col("MisconceptionId") == pl.col("PredictMisconceptionId")).alias("is_gt_candidate"))
+        .group_by("QuestionId_Answer")
+        .agg(pl.col("is_gt_candidate").sum())
+    )
+    gt_no_ids = tmp.filter(pl.col("is_gt_candidate") == 0.0)["QuestionId_Answer"].to_list()
+    gt_has_ids = tmp.filter(pl.col("is_gt_candidate") > 0.0)["QuestionId_Answer"].to_list()
+    gt_no_df = df.filter(pl.col("QuestionId_Answer").is_in(gt_no_ids))
+    gt_has_df = df.filter(pl.col("QuestionId_Answer").is_in(gt_has_ids))
+    # 学習前の時点で正しい予測より類似度が低いものに関しては学習データから除外する
+    gt_has_df = (
+        gt_has_df.with_columns(
+            [
+                # MisconceptionIdごとに0から始まるrankを付ける
+                pl.col("PredictMisconceptionId").rank().over("QuestionId_Answer").alias("rank"),
+                # MisconceptionId内でMisconceptionId=PredictMisconceptionIdとなるrankを計算
+                pl.when(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))
+                .then(pl.col("PredictMisconceptionId").rank().over("QuestionId_Answer"))
+                .otherwise(None)
+                .alias("threshold_rank"),
+            ]
+        )
+        .with_columns(pl.col("threshold_rank").max().over("QuestionId_Answer").alias("max_threshold_rank"))
+        .filter(pl.col("rank") <= pl.col("max_threshold_rank") + cfg.tolerance_negative)
+        .drop(["rank", "threshold_rank", "max_threshold_rank"])
+    )
+    output_df = pl.concat([gt_has_df, gt_no_df]).sort("QuestionId_Answer")
+    return output_df
 
 
 def adjust_unseen(
@@ -265,9 +300,9 @@ class DataProcessor:
         model = SentenceTransformer(self.cfg.model.name)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         df = df.with_columns(
-            pl.Series(sorted_similarity[:, : self.cfg.num_candidates].tolist()).alias("PredictMisconceptionId")
+            pl.Series(sorted_similarity[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
         )
-        df = create_retrieved(df, misconception_mapping)
+        df = create_retrieved(df, misconception_mapping, self.cfg)
         return df
 
     def feature_engineering(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -277,7 +312,7 @@ class DataProcessor:
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df)
-        df = self.feature_engineering(df)
+        # df = self.feature_engineering(df)
         if self.cfg.phase == "train":
             seen, unseen = self.add_fold(df)
             for fold in range(self.cfg.n_splits):
@@ -286,6 +321,8 @@ class DataProcessor:
                 assert len(set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list())) == 0
                 train = self.generate_candidates(train, misconception)
                 valid = self.generate_candidates(valid, misconception)
+                LOGGER.info(f"Train recall: {calc_recall(train):.5f}")
+                LOGGER.info(f"Valid recall: {calc_recall(valid):.5f}")
                 train.write_csv(self.output_dir / f"train_fold{fold}.csv")
                 valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
                 # hold-outで利用するのでfold=0のみ保存
