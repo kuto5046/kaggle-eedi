@@ -91,15 +91,15 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
             value_name="AnswerText",
         )
         .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("ConstructName"),
-                    pl.col("SubjectName"),
-                    pl.col("QuestionText"),
-                    pl.col("AnswerText"),
-                ],
-                separator=" ",
-            ).alias("AllText"),
+            # pl.concat_str(
+            #     [
+            #         pl.col("ConstructName"),
+            #         pl.col("SubjectName"),
+            #         pl.col("QuestionText"),
+            #         pl.col("AnswerText"),
+            #     ],
+            #     separator=" ",
+            # ).alias("AllText"),
             pl.col("AnswerType").str.extract(r"Answer([A-D])Text$").alias("AnswerAlphabet"),
         )
         .with_columns(
@@ -312,7 +312,7 @@ class DataProcessor:
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df)
-        # df = self.feature_engineering(df)
+        df = self.feature_engineering(df)
         if self.cfg.phase == "train":
             seen, unseen = self.add_fold(df)
             for fold in range(self.cfg.n_splits):
