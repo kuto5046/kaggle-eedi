@@ -152,9 +152,9 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
     return train
 
 
-def get_groupkfold(train: pl.DataFrame, target_col: str, n_splits: int) -> pl.DataFrame:
+def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.DataFrame:
     kf = GroupKFold(n_splits=n_splits)
-    cv = list(kf.split(X=train, groups=train[target_col].to_numpy()))
+    cv = list(kf.split(X=train, groups=train[group_col].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -280,21 +280,8 @@ class DataProcessor:
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             return df
 
-    def add_fold(self, df: pl.DataFrame) -> tuple[pl.DataFrame, pl.DataFrame]:
-        # trainデータに1度しか出現していないmisconceptionIdを抽出し、unseenとして分ける
-        candidate_misconception_ids = (
-            df.group_by("MisconceptionId").len().filter(pl.col("len") == 1)["MisconceptionId"].to_list()
-        )
-        # 未知のmisconception用(unseen)として分けておく
-        unseen = df.filter(pl.col("MisconceptionId").is_in(candidate_misconception_ids))
-
-        # unseenを除くデータでfoldを作成
-        # 実際にはseenにもunseenが含まれている。これにunseenを結合してunseen_rateを調整する
-        seen = df.filter(~pl.col("QuestionId").is_in(unseen["QuestionId"].to_list()))
-        seen = get_stratifiedgroupkfold(
-            seen, target_col="MisconceptionId", group_col="QuestionId", n_splits=self.cfg.n_splits, seed=self.cfg.seed
-        )
-        return seen, unseen
+    def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
+        return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
 
     def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
         # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
@@ -316,9 +303,10 @@ class DataProcessor:
         df = self.preprocess(df)
         df = self.feature_engineering(df)
         if self.cfg.phase == "train":
-            seen, unseen = self.add_fold(df)
+            df = self.add_fold(df)
             for fold in range(self.cfg.n_splits):
-                train, valid = adjust_unseen(seen, unseen, fold, self.cfg.unseen_valid_rate, self.cfg.seed)
+                train = df.filter(pl.col("fold") != fold)
+                valid = df.filter(pl.col("fold") == fold)
                 # 必ずtrainとvalidでQuestionIdが被らないようにする
                 assert len(set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list())) == 0
                 train = self.generate_candidates(train, misconception)

@@ -93,7 +93,8 @@ class TrainPipeline:
                 # MisconceptionNameが正例、PredictMisconceptionNameが負例。ペアを1つの入力としている
                 ["AllText", "MisconceptionName", "PredictMisconceptionName"]
             )
-        )
+        ).shuffle(seed=self.cfg.seed)
+
         self.valid_dataset = (
             Dataset.from_polars(self.valid)
             .filter(
