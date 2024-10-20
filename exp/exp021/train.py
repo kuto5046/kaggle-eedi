@@ -1,3 +1,4 @@
+import os
 import shutil
 import logging
 from pathlib import Path
@@ -9,6 +10,7 @@ from datasets import Dataset
 from lightning import seed_everything
 from omegaconf import DictConfig
 from numpy.typing import NDArray
+from transformers import set_seed
 from sentence_transformers import (
     SentenceTransformer,
     SentenceTransformerTrainer,
@@ -23,6 +25,9 @@ from .data_processor import sentence_emb_similarity
 
 LOGGER = logging.getLogger(__name__)
 
+# seed固定用
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
 
 # ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
 def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> float:
@@ -34,12 +39,20 @@ def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> f
     return map_sum / len(preds)
 
 
+# https://www.kaggle.com/competitions/eedi-mining-misconceptions-in-mathematics/discussion/539649
+class CustomSentenceTransformer(SentenceTransformer):
+    def _create_model_card(self, *args, **kwargs) -> None:  # type: ignore
+        # Avoid to generate model card
+        pass
+
+
 class TrainPipeline:
     def __init__(self, cfg: DictConfig) -> None:
         # cfg.pathの中身をPathに変換する
         for key, value in cfg.path.items():
             cfg.path[key] = Path(value)
 
+        set_seed(cfg.seed, deterministic=True)
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
 
         # hydraのrun_dirに同じpathが設定されているので自動でディレクトリが作成される
@@ -66,8 +79,8 @@ class TrainPipeline:
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         if self.cfg.debug:
-            self.train = self.train.sample(fraction=0.01)
-            self.valid = self.valid.sample(fraction=0.01)
+            self.train = self.train.sample(fraction=0.05, seed=self.cfg.seed)
+            self.valid = self.valid.sample(fraction=0.05, seed=self.cfg.seed)
 
         # To create an anchor, positive, and negative structure,
         # delete rows where the positive and negative are identical.
@@ -104,7 +117,7 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        self.model = SentenceTransformer(self.cfg.model.name)
+        self.model = CustomSentenceTransformer(self.cfg.model.name)
 
         loss = MultipleNegativesRankingLoss(self.model)
         params = self.cfg.trainer

@@ -194,6 +194,7 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg:
             misconception_mapping.rename(lambda x: "Predict" + x),
             on="PredictMisconceptionId",
         )
+        .with_row_index(name="idx")
     )
 
     tmp = (
@@ -222,7 +223,7 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg:
         .filter(pl.col("rank") <= pl.col("max_threshold_rank") + cfg.tolerance_negative)
         .drop(["rank", "threshold_rank", "max_threshold_rank"])
     )
-    output_df = pl.concat([gt_has_df, gt_no_df]).sort("QuestionId_Answer")
+    output_df = pl.concat([gt_has_df, gt_no_df]).sort(["idx"]).drop("idx")
     return output_df
 
 
@@ -306,13 +307,14 @@ class DataProcessor:
         return df
 
     def feature_engineering(self, df: pl.DataFrame) -> pl.DataFrame:
-        df = add_llm_misconception_features(df, self.cfg)
+        if self.cfg.llm.active:
+            df = add_llm_misconception_features(df, self.cfg)
         return df
 
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df)
-        # df = self.feature_engineering(df)
+        df = self.feature_engineering(df)
         if self.cfg.phase == "train":
             seen, unseen = self.add_fold(df)
             for fold in range(self.cfg.n_splits):

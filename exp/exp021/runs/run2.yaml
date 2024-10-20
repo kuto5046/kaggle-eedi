@@ -1,5 +1,0 @@
-# @package _global_
-run_name: run2
-
-max_candidates: 25  # 1つの学習データに紐づける負例の候補数
-tolerance_negative: 10  # 類似度が真値より低い負例を何件許容するか
