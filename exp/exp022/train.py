@@ -9,19 +9,23 @@ import polars as pl
 from datasets import Dataset
 from lightning import seed_everything
 from omegaconf import DictConfig
+from tokenizers import AddedToken
 from numpy.typing import NDArray
-from transformers import set_seed
-from sentence_transformers import (
-    SentenceTransformer,
-    SentenceTransformerTrainer,
-    SentenceTransformerTrainingArguments,
+from transformers import (
+    Trainer,
+    AutoTokenizer,
+    EvalPrediction,
+    TrainingArguments,
+    DataCollatorWithPadding,
+    AutoModelForSequenceClassification,
+    set_seed,
 )
-from sentence_transformers.losses import MultipleNegativesRankingLoss
-from sentence_transformers.training_args import BatchSamplers
+from scipy.special import softmax
+from sklearn.metrics import log_loss
 
 import wandb
 
-from .data_processor import sentence_emb_similarity
+NUM_LABELS = 2
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,11 +43,33 @@ def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> f
     return map_sum / len(preds)
 
 
-# https://www.kaggle.com/competitions/eedi-mining-misconceptions-in-mathematics/discussion/539649
-class CustomSentenceTransformer(SentenceTransformer):
-    def _create_model_card(self, *args, **kwargs) -> None:  # type: ignore
-        # Avoid to generate model card
-        pass
+def tokenize(examples: dict[str, str], max_token_length: int, tokenizer: AutoTokenizer) -> dict[str, list]:
+    separator = " [SEP] "
+
+    joined_text = (
+        examples["ConstructName"]
+        + separator
+        + examples["SubjectName"]
+        + separator
+        + examples["QuestionText"]
+        + separator
+        + examples["AnswerText"]
+        + separator  # TODO: use other special token
+        + examples["PredictMisconceptionName"]
+    )
+
+    return tokenizer(
+        joined_text,
+        max_length=max_token_length,
+        truncation=True,
+        padding="max_length",
+    )
+
+
+def compute_metrics(eval_pred: EvalPrediction) -> dict[str, float]:
+    predictions, labels = eval_pred
+    preds_prob = softmax(predictions, axis=-1)
+    return {"eval_loss": log_loss(labels, preds_prob)}
 
 
 class TrainPipeline:
@@ -82,27 +108,27 @@ class TrainPipeline:
             self.train = self.train.sample(fraction=0.05, seed=self.cfg.seed)
             self.valid = self.valid.sample(fraction=0.05, seed=self.cfg.seed)
 
-        # To create an anchor, positive, and negative structure,
-        # delete rows where the positive and negative are identical.
-        self.train_dataset = (
-            Dataset.from_polars(self.train)
-            .filter(
-                lambda example: example["MisconceptionId"] != example["PredictMisconceptionId"],
-            )
-            .select_columns(
-                # MisconceptionNameが正例、PredictMisconceptionNameが負例。ペアを1つの入力としている
-                ["AllText", "MisconceptionName", "PredictMisconceptionName"]
-            )
+        self.train = self.train.with_columns(
+            (pl.col("MisconceptionId") == pl.col("PredictMisconceptionId")).cast(pl.Int16).alias("label")
         )
-        self.valid_dataset = (
-            Dataset.from_polars(self.valid)
-            .filter(
-                lambda example: example["MisconceptionId"] != example["PredictMisconceptionId"],
-            )
-            .select_columns(
-                # MisconceptionNameが正例、PredictMisconceptionNameが負例。ペアを1つの入力としている
-                ["AllText", "MisconceptionName", "PredictMisconceptionName"]
-            )
+        self.valid = self.valid.with_columns(
+            (pl.col("MisconceptionId") == pl.col("PredictMisconceptionId")).cast(pl.Int16).alias("label")
+        )
+        self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.reranker_model.name)
+        self.tokenizer.add_tokens([AddedToken("\n", normalized=False)])
+        self.tokenizer.add_tokens([AddedToken(" " * 2, normalized=False)])
+        self.train_dataset = Dataset.from_polars(self.train).map(
+            tokenize,
+            batched=False,
+            fn_kwargs={"tokenizer": self.tokenizer, "max_token_length": 256},
+            num_proc=4,
+        )
+
+        self.valid_dataset = Dataset.from_polars(self.valid).map(
+            tokenize,
+            batched=False,
+            fn_kwargs={"tokenizer": self.tokenizer, "max_token_length": 256},
+            num_proc=4,
         )
 
     def setup_logger(self) -> None:
@@ -117,11 +143,12 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        self.model = CustomSentenceTransformer(self.cfg.model.name)
+        model = AutoModelForSequenceClassification.from_pretrained(self.cfg.reranker_model.name, num_labels=NUM_LABELS)
+        model.resize_token_embeddings(len(self.tokenizer))
 
-        loss = MultipleNegativesRankingLoss(self.model)
+        data_collator = DataCollatorWithPadding(tokenizer=self.tokenizer, pad_to_multiple_of=16)
         params = self.cfg.trainer
-        args = SentenceTransformerTrainingArguments(
+        args = TrainingArguments(
             # Required parameter:
             output_dir=self.output_dir,
             # Optional training parameters:
@@ -136,7 +163,6 @@ class TrainPipeline:
             fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
             bf16=False,  # Set to True if you have a GPU that supports BF16
             # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
-            batch_sampler=BatchSamplers.NO_DUPLICATES,
             # Optional tracking/debugging parameters:
             lr_scheduler_type=params.lr_scheduler_type,
             save_strategy=params.save_strategy,
@@ -152,28 +178,47 @@ class TrainPipeline:
             seed=self.cfg.seed,
             load_best_model_at_end=True,
             do_eval=True,
+            # label_names=['label'],  # 指定するとeval_lossがmetricに反映されずerrorとなる
         )
 
-        trainer = SentenceTransformerTrainer(
-            model=self.model, args=args, train_dataset=self.train_dataset, eval_dataset=self.valid_dataset, loss=loss
+        self.trainer = Trainer(
+            model=model,
+            args=args,
+            train_dataset=self.train_dataset,
+            eval_dataset=self.valid_dataset,
+            tokenizer=self.tokenizer,
+            data_collator=data_collator,
+            compute_metrics=compute_metrics,
         )
-
-        trainer.train()
+        self.trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
             shutil.rmtree(ckpt_dir)
-        self.model.save_pretrained(path=str(self.output_dir))
+        model.save_pretrained(str(self.output_dir))
+        # self.trainer.save_model(str(self.output_dir))
 
     def evaluate(self) -> None:
-        oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-        sorted_similarity = sentence_emb_similarity(oof, self.misconception_mapping, self.model)
+        preds = softmax(self.trainer.predict(self.valid_dataset).predictions, axis=-1)
+
+        def add_valid_pred(example: dict, idx: int, preds: np.ndarray) -> dict:
+            example["pred"] = preds[idx]
+            return example
+
         oof = (
-            oof.drop("AllText")
-            .with_columns(pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("pred"))
-            .with_columns(pl.col("pred").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+            self.valid.with_columns(pl.Series(preds[:, 1]).alias("pred"))
+            .sort(by=["QuestionId_Answer", "pred"], descending=[False, True])
+            .group_by(["QuestionId_Answer"], maintain_order=True)
+            .agg(pl.col("PredictMisconceptionId").alias("Predict"))
+            .with_columns(pl.col("Predict").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+            .join(
+                self.valid_dataset.to_polars()[["QuestionId_Answer", "MisconceptionId"]].unique(),
+                on=["QuestionId_Answer"],
+            )
+            .sort(by=["QuestionId_Answer"])
         )
+
         oof.write_csv(self.output_dir / "oof.csv")
-        score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
+        score = mapk(preds=oof["Predict"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
         LOGGER.info(f"CV: {score}")
         wandb.log({"CV": score})  # type: ignore
 

@@ -1,10 +1,10 @@
 ###############
 # experiment
 ###############
-exp_name: exp021
+exp_name: exp022
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "fine-tune前にランク下位のものは学習に利用しない"
-tags: []
+tags: ["reranker"]
 
 defaults:
   - _self_
@@ -31,10 +31,12 @@ unseen_valid_rate: 0.6
 
 retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
-tolerance_negative: 0  # 類似度が真値より低い負例を何件許容するか
+tolerance_negative: 25  # 類似度が真値より低い負例を何件許容するか
 
-model:
+retrieval_model:
   name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する
+reranker_model:
+  name: microsoft/deberta-v3-xsmall  # ここを変える場合data_processorを再実行する
 
 llm:
   active: false
@@ -80,7 +82,7 @@ trainer:
   eval_steps: 0.2  # training_step全体の何%ごとに評価するか
   metric_for_best_model: eval_loss
   report_to: wandb
-
+  gradient_checkpointing: true
 
 # ---------- Overriding hydra default configs ----------
 hydra:
