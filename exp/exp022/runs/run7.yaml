@@ -1,0 +1,10 @@
+# @package _global_
+run_name: run7
+notes: "deberta reranker lrをあげる"
+reranker_model:
+  name: microsoft/deberta-v3-xsmall  # ここを変える場合data_processorを再実行する
+
+trainer:
+  batch_size: 64
+  gradient_accumulation_steps: 1   # 128 // batch_size
+  learning_rate: 1e-4
