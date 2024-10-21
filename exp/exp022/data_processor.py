@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
+from numpy.typing import NDArray
 from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
@@ -136,6 +137,30 @@ def calc_recall(df: pl.DataFrame) -> float:
         df.filter(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))["QuestionId_Answer"].n_unique()
         / df["QuestionId_Answer"].n_unique()
     )
+
+
+# ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
+def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> float:
+    map_sum = 0
+    for _x, y in zip(preds, labels):
+        x = [int(i) for i in _x.split(" ")]
+        z = [1 / i if y == j else 0 for i, j in zip(range(1, k + 1), x)]
+        map_sum += np.sum(z)
+    return map_sum / len(preds)
+
+
+def calc_mapk(df: pl.DataFrame) -> float:
+    agg_df = (
+        df.group_by(["QuestionId_Answer"], maintain_order=True)
+        .agg(pl.col("PredictMisconceptionId").alias("Predict"))
+        .with_columns(pl.col("Predict").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+        .join(
+            df[["QuestionId_Answer", "MisconceptionId"]].unique(),
+            on=["QuestionId_Answer"],
+        )
+        .sort(by=["QuestionId_Answer"])
+    )
+    return mapk(agg_df["Predict"].to_numpy(), agg_df["MisconceptionId"])
 
 
 def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> pl.DataFrame:
@@ -325,6 +350,8 @@ class DataProcessor:
                 valid = self.generate_candidates(valid, misconception)
                 LOGGER.info(f"Train recall: {calc_recall(train):.5f}")
                 LOGGER.info(f"Valid recall: {calc_recall(valid):.5f}")
+                LOGGER.info(f"Train CV: {calc_mapk(train):.5f}")
+                LOGGER.info(f"Valid CV: {calc_mapk(valid):.5f}")
                 train.write_csv(self.output_dir / f"train_fold{fold}.csv")
                 valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
                 # hold-outで利用するのでfold=0のみ保存

@@ -3,7 +3,7 @@
 ###############
 exp_name: exp022
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "fine-tune前にランク下位のものは学習に利用しない"
+notes: "deberta reranker"
 tags: ["reranker"]
 
 defaults:
@@ -68,6 +68,7 @@ trainer:
   epoch: 2
   batch_size: 16
   gradient_accumulation_steps: 32  # 128 // batch_size
+  gradient_checkpointing: true
   learning_rate: 2e-5
   weight_decay: 0.1
   warmup_ratio: 0.1
@@ -82,7 +83,6 @@ trainer:
   eval_steps: 0.2  # training_step全体の何%ごとに評価するか
   metric_for_best_model: eval_loss
   report_to: wandb
-  gradient_checkpointing: true
 
 # ---------- Overriding hydra default configs ----------
 hydra:

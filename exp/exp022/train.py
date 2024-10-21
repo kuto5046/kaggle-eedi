@@ -123,6 +123,7 @@ class TrainPipeline:
             fn_kwargs={"tokenizer": self.tokenizer, "max_token_length": 256},
             num_proc=4,
         )
+        # .shuffle(seed=self.cfg.seed).flatten_indices()
 
         self.valid_dataset = Dataset.from_polars(self.valid).map(
             tokenize,
@@ -155,12 +156,14 @@ class TrainPipeline:
             num_train_epochs=params.epoch,
             per_device_train_batch_size=params.batch_size,
             gradient_accumulation_steps=params.gradient_accumulation_steps,
+            gradient_checkpointing=params.gradient_checkpointing,
             per_device_eval_batch_size=int(params.batch_size * 2),
             eval_accumulation_steps=params.gradient_accumulation_steps // 2,
             learning_rate=params.learning_rate,
             weight_decay=params.weight_decay,
             warmup_ratio=params.warmup_ratio,
             fp16=True,  # Set to False if you get an error that your GPU can't run on FP16
+            fp16_full_eval=True,
             bf16=False,  # Set to True if you have a GPU that supports BF16
             # MultipleNegativesRankingLoss benefits from no duplicate samples in a batch
             # Optional tracking/debugging parameters:
@@ -199,26 +202,21 @@ class TrainPipeline:
 
     def evaluate(self) -> None:
         preds = softmax(self.trainer.predict(self.valid_dataset).predictions, axis=-1)
-
-        def add_valid_pred(example: dict, idx: int, preds: np.ndarray) -> dict:
-            example["pred"] = preds[idx]
-            return example
-
         oof = (
             self.valid.with_columns(pl.Series(preds[:, 1]).alias("pred"))
             .sort(by=["QuestionId_Answer", "pred"], descending=[False, True])
             .group_by(["QuestionId_Answer"], maintain_order=True)
-            .agg(pl.col("PredictMisconceptionId").alias("Predict"))
-            .with_columns(pl.col("Predict").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+            .agg(pl.col("PredictMisconceptionId").alias("pred"))
+            .with_columns(pl.col("pred").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
             .join(
-                self.valid_dataset.to_polars()[["QuestionId_Answer", "MisconceptionId"]].unique(),
+                self.valid[["QuestionId_Answer", "MisconceptionId"]].unique(),
                 on=["QuestionId_Answer"],
             )
             .sort(by=["QuestionId_Answer"])
         )
 
         oof.write_csv(self.output_dir / "oof.csv")
-        score = mapk(preds=oof["Predict"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
+        score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
         LOGGER.info(f"CV: {score}")
         wandb.log({"CV": score})  # type: ignore
 
