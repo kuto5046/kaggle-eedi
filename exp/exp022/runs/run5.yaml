@@ -1,0 +1,9 @@
+# @package _global_
+run_name: run5
+notes: "deberta reranker deberta large"
+reranker_model:
+  name: microsoft/deberta-v3-large
+
+trainer:
+  batch_size: 64
+  gradient_accumulation_steps: 1   # 128 // batch_size

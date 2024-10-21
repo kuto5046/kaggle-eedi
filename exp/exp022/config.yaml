@@ -36,7 +36,7 @@ tolerance_negative: 25  # 類似度が真値より低い負例を何件許容す
 retrieval_model:
   name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する
 reranker_model:
-  name: microsoft/deberta-v3-xsmall  # ここを変える場合data_processorを再実行する
+  name: microsoft/deberta-v3-xsmall
 
 llm:
   active: false
