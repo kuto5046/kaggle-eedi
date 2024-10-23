@@ -1,9 +1,0 @@
-# @package _global_
-run_name: run1
-
-reranker_model:
-  name: microsoft/deberta-v3-xsmall  # ここを変える場合data_processorを再実行する
-
-trainer:
-  batch_size: 128
-  gradient_accumulation_steps: 4   # 128 // batch_size
