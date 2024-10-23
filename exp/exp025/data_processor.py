@@ -1,85 +1,17 @@
-import re
 import logging
 from pathlib import Path
 
-import vllm
 import hydra
 import numpy as np
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
-from transformers import AutoTokenizer
+from numpy.typing import NDArray
 from sentence_transformers import SentenceTransformer
-from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
+from sklearn.model_selection import GroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
 LOGGER = logging.getLogger(__name__)
-
-# trainデータに含まれるmisconceptionのユニーク数
-ORIGINAL_TRAIN_UNIQUE_MISCONCEPTION_SIZE = 1604
-
-
-def add_llm_misconception_features(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    # プロンプト生成
-    tokenizer = AutoTokenizer.from_pretrained(cfg.llm.model.model)
-    prompt = """
-    Question: {Question}
-    Incorrect Answer: {IncorrectAnswer}
-    Correct Answer: {CorrectAnswer}
-    Construct Name: {ConstructName}
-    Subject Name: {SubjectName}
-
-    Your task: Identify the misconception behind Incorrect Answer.
-    Answer concisely and generically inside <response>$$INSERT TEXT HERE$$</response>.
-    Before answering the question think step by step concisely in 1-2 sentence
-    inside <thinking>$$INSERT TEXT HERE$$</thinking> tag and
-    respond your final misconception inside <response>$$INSERT TEXT HERE$$</response> tag.
-    """
-    texts = [apply_template(row, tokenizer, prompt) for row in df.iter_rows(named=True)]
-    df = df.with_columns(pl.Series(texts).alias("Prompt"))
-
-    # LLMによるmisconception予測
-    llm = vllm.LLM(**cfg.llm.model)
-    tokenizer = llm.get_tokenizer()
-    prompts = df["Prompt"].to_numpy()
-    sampling_params = vllm.SamplingParams(**cfg.llm.sampling)
-    full_responses = llm.generate(prompts=prompts, sampling_params=sampling_params, use_tqdm=True)
-
-    def extract_response(text: str) -> str:
-        return ",".join(re.findall(r"<response>(.*?)</response>", text)).strip()
-
-    responses = [extract_response(x.outputs[0].text) for x in full_responses]
-    df = df.with_columns(pl.Series(responses).alias("LLMMisconception"))
-    df = df.with_columns(
-        pl.concat_str(
-            [
-                pl.col("ConstructName"),
-                pl.col("SubjectName"),
-                pl.col("QuestionText"),
-                pl.col("AnswerText"),
-                pl.col("LLMMisconception"),
-            ],
-            separator=" ",
-        ).alias("AllText")
-    )
-    return df
-
-
-def apply_template(row: pl.Series, tokenizer: AutoTokenizer, prompt: str) -> str:
-    messages = [
-        {
-            "role": "user",
-            "content": prompt.format(
-                ConstructName=row["ConstructName"],
-                SubjectName=row["SubjectName"],
-                Question=row["QuestionText"],
-                IncorrectAnswer=row["CorrectAnswer"],
-                CorrectAnswer=row["AnswerText"],
-            ),
-        }
-    ]
-    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-    return text
 
 
 def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
@@ -138,6 +70,30 @@ def calc_recall(df: pl.DataFrame) -> float:
     )
 
 
+# ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
+def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> float:
+    map_sum = 0
+    for _x, y in zip(preds, labels):
+        x = [int(i) for i in _x.split(" ")]
+        z = [1 / i if y == j else 0 for i, j in zip(range(1, k + 1), x)]
+        map_sum += np.sum(z)
+    return map_sum / len(preds)
+
+
+def calc_mapk(df: pl.DataFrame) -> float:
+    agg_df = (
+        df.group_by(["QuestionId_Answer"], maintain_order=True)
+        .agg(pl.col("PredictMisconceptionId").alias("Predict"))
+        .with_columns(pl.col("Predict").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+        .join(
+            df[["QuestionId_Answer", "MisconceptionId"]].unique(),
+            on=["QuestionId_Answer"],
+        )
+        .sort(by=["QuestionId_Answer"])
+    )
+    return mapk(agg_df["Predict"].to_numpy(), agg_df["MisconceptionId"])
+
+
 def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> pl.DataFrame:
     """
     trainにfoldのcolumnを付与する
@@ -155,14 +111,6 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
 def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.DataFrame:
     kf = GroupKFold(n_splits=n_splits)
     cv = list(kf.split(X=train, groups=train[group_col].to_numpy()))
-    return get_fold(train, cv)
-
-
-def get_stratifiedgroupkfold(
-    train: pl.DataFrame, target_col: str, group_col: str, n_splits: int, seed: int
-) -> pl.DataFrame:
-    kf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    cv = list(kf.split(X=train, y=train[target_col].to_numpy(), groups=train[group_col].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -227,31 +175,6 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg:
     return output_df
 
 
-def adjust_unseen(
-    seen: pl.DataFrame, unseen: pl.DataFrame, fold: int, unseen_valid_rate: float, seed: int
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    train = seen.filter(pl.col("fold") != fold).drop("fold")
-    valid = seen.filter(pl.col("fold") == fold).drop("fold")
-    unseen_valid = unseen.sample(fraction=unseen_valid_rate, seed=seed)
-    unseen_train = unseen.filter(~pl.col("QuestionId").is_in(unseen_valid["QuestionId"].to_list()))
-    train = pl.concat([train, unseen_train])
-    valid = pl.concat([valid, unseen_valid])
-    unseen_rate = calcuate_unseen_rate(train, valid)
-    valid_rate = len(valid) / (len(train) + len(valid))
-    train_misconception_rate = len(train["MisconceptionId"].unique()) / ORIGINAL_TRAIN_UNIQUE_MISCONCEPTION_SIZE
-    LOGGER.info(f"{fold=}: {unseen_rate=:.3%}, {valid_rate=:.3%} {train_misconception_rate=:.3%}")
-    return train, valid
-
-
-def calcuate_unseen_rate(train: pl.DataFrame, valid: pl.DataFrame) -> float:
-    train_misconception_ids = train["MisconceptionId"].to_list()
-    valid_misconception_ids = valid["MisconceptionId"].to_list()
-    # unseen rateを計算
-    unseen_misconception_ids = list(set(valid_misconception_ids) - set(train_misconception_ids))
-    unseen_rate = len(unseen_misconception_ids) / len(valid_misconception_ids)
-    return unseen_rate
-
-
 class DataProcessor:
     def __init__(self, cfg: DictConfig) -> None:
         for key, value in cfg.path.items():
@@ -293,32 +216,15 @@ class DataProcessor:
         df = create_retrieved(df, misconception_mapping, self.cfg)
         return df
 
-    def feature_engineering(self, df: pl.DataFrame) -> pl.DataFrame:
-        if self.cfg.llm.active:
-            df = add_llm_misconception_features(df, self.cfg)
-        return df
-
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df)
-        df = self.feature_engineering(df)
         if self.cfg.phase == "train":
             df = self.add_fold(df)
-            for fold in range(self.cfg.n_splits):
-                train = df.filter(pl.col("fold") != fold)
-                valid = df.filter(pl.col("fold") == fold)
-                # 必ずtrainとvalidでQuestionIdが被らないようにする
-                assert len(set(train["QuestionId"].to_list()) & set(valid["QuestionId"].to_list())) == 0
-                train = self.generate_candidates(train, misconception)
-                valid = self.generate_candidates(valid, misconception)
-                LOGGER.info(f"Train recall: {calc_recall(train):.5f}")
-                LOGGER.info(f"Valid recall: {calc_recall(valid):.5f}")
-                train.write_csv(self.output_dir / f"train_fold{fold}.csv")
-                valid.write_csv(self.output_dir / f"valid_fold{fold}.csv")
-                # hold-outで利用するのでfold=0のみ保存
-                break
-        else:
-            df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
+            df = self.generate_candidates(df, misconception)
+            LOGGER.info(f"recall: {calc_recall(df):.5f}")
+            LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
+        df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore

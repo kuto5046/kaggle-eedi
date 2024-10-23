@@ -54,12 +54,12 @@ class TrainPipeline:
 
         set_seed(cfg.seed, deterministic=True)
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
+        self.cfg = cfg
+        self.debug_config()
 
         # hydraのrun_dirに同じpathが設定されているので自動でディレクトリが作成される
         self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
 
-        self.cfg = cfg
-        self.debug_config()
         assert cfg.phase == "train", "TrainPipeline only supports train phase"
 
     def debug_config(self) -> None:
@@ -68,20 +68,18 @@ class TrainPipeline:
             self.cfg.trainer.save_steps = 0.5
             self.cfg.trainer.logging_steps = 0.5
             self.cfg.trainer.eval_steps = 0.5
+            self.cfg.exp_name = "dummy"
+            self.cfg.run_name = "debug"
 
     def setup_dataset(self) -> None:
-        self.train = pl.read_csv(
-            self.cfg.path.feature_dir / self.cfg.feature_version / f"train_fold{self.cfg.use_fold}.csv"
-        )
-        self.valid = pl.read_csv(
-            self.cfg.path.feature_dir / self.cfg.feature_version / f"valid_fold{self.cfg.use_fold}.csv"
-        )
+        df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "train.csv")
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         if self.cfg.debug:
-            self.train = self.train.sample(fraction=0.05, seed=self.cfg.seed)
-            self.valid = self.valid.sample(fraction=0.05, seed=self.cfg.seed)
+            df = df.sample(fraction=0.05, seed=self.cfg.seed)
 
+        self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
+        self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
         # To create an anchor, positive, and negative structure,
         # delete rows where the positive and negative are identical.
         self.train_dataset = (
@@ -112,7 +110,7 @@ class TrainPipeline:
         wandb.init(  # type: ignore
             project="kaggle-eedi",
             entity="kuto5046",
-            name=f"{self.cfg.exp_name}_{self.cfg.run_name}_fold{self.cfg.use_fold}",
+            name=f"{self.cfg.exp_name}_{self.cfg.run_name}",
             group=self.cfg.exp_name,
             tags=self.cfg.tags,
             mode="disabled" if self.cfg.debug else "online",

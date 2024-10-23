@@ -1,4 +1,3 @@
 # @package _global_
-run_name: run1
-
-shuffle_dataset: false
+run_name: fold1
+use_fold: 1
