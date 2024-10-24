@@ -141,6 +141,7 @@ class TrainPipeline:
                 tokeadd_generation_prompt=True,
                 tokenize=False,  # textとして渡す
             )
+            + "<|im_start|>assistant"
             for row in self.valid.iter_rows(named=True)
         ]
 
@@ -163,7 +164,10 @@ class TrainPipeline:
             use_cache=False,
             device_map="auto",
         )
-        data_collator = DataCollatorForCompletionOnlyLM(response_template="Responce:", tokenizer=self.tokenizer)
+
+        data_collator = DataCollatorForCompletionOnlyLM(
+            response_template="<|im_start|>assistant", tokenizer=self.tokenizer
+        )
         lora_config = LoraConfig(
             r=8,
             lora_alpha=16,
@@ -180,6 +184,7 @@ class TrainPipeline:
                 "down_proj",
             ),
         )
+        model.enable_input_require_grads()
         model = get_peft_model(model, lora_config)
         LOGGER.info(model.print_trainable_parameters())
 
@@ -227,7 +232,7 @@ class TrainPipeline:
             tokenizer=self.tokenizer,
             data_collator=data_collator,
         )
-        # _ = trainer.train()
+        _ = trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
             shutil.rmtree(ckpt_dir)

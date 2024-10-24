@@ -49,8 +49,8 @@ There are some relative and possible misconceptions below to help you make the d
                 ConstructName=row["ConstructName"],
                 SubjectName=row["SubjectName"],
                 Question=row["QuestionText"],
-                IncorrectAnswer=row["CorrectAnswer"],
-                CorrectAnswer=row["AnswerText"],
+                CorrectAnswer=row["CorrectAnswerText"],
+                IncorrectAnswer=row["InCorrectAnswerText"],
                 MisconceptionName=row["MisconceptionName"],
                 Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping),
             )
@@ -93,6 +93,17 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
             pl.concat_str([pl.col("QuestionId"), pl.col("AnswerAlphabet")], separator="_").alias("QuestionId_Answer"),
         )
         .sort("QuestionId_Answer")
+    )
+    # 問題-正解-不正解のペアを作る
+    correct_df = (
+        long_df.filter(pl.col("CorrectAnswer") == pl.col("AnswerAlphabet"))
+        .select(["QuestionId", "AnswerAlphabet", "AnswerText"])
+        .rename({"AnswerAlphabet": "CorrectAnswerAlphabet", "AnswerText": "CorrectAnswerText"})
+    )
+    long_df = (
+        long_df.join(correct_df, on=["QuestionId"], how="left")
+        .rename({"AnswerAlphabet": "InCorrectAnswerAlphabet", "AnswerText": "InCorrectAnswerText"})
+        .filter(pl.col("InCorrectAnswerAlphabet") != pl.col("CorrectAnswerAlphabet"))
     )
     return long_df
 

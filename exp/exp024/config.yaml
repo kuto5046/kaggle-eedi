@@ -72,22 +72,22 @@ vllm:
 trainer:
   epoch: 1
   batch_size: 1
-  gradient_accumulation_steps: 32  # 128 // batch_size
+  gradient_accumulation_steps: 16  # 128 // batch_size
   gradient_checkpointing: true
   learning_rate: 2e-5
-  weight_decay: 0.1
+  weight_decay: 0.01
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
   lr_scheduler_type: cosine
   optim: paged_adamw_8bit
   fp16: true
   bf16: false
-  save_strategy: steps
+  save_strategy: no
   save_steps: 0.2  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
   logging_strategy: steps
   logging_steps: 0.2  # training_step全体の何%ごとにログを出力するか
-  eval_strategy: steps
+  eval_strategy: no
   eval_steps: 0.2  # training_step全体の何%ごとに評価するか
   metric_for_best_model: eval_loss
   report_to: wandb
