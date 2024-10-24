@@ -1,6 +1,7 @@
 import re
 import logging
 from pathlib import Path
+from collections import defaultdict
 
 import vllm
 import hydra
@@ -200,7 +201,6 @@ There are some relative and possible misconceptions below to help you make the d
                 Question=row["QuestionText"],
                 CorrectAnswer=row["CorrectAnswerText"],
                 IncorrectAnswer=row["InCorrectAnswerText"],
-                MisconceptionName=row["MisconceptionName"],
                 Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping),
             )
         )
@@ -215,7 +215,7 @@ def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, 
     retrieval = ""
     for i, id in enumerate(misconception_ids):
         name = id2name_mapping[id]
-        retrieval += f"{i=}. {name} \n"
+        retrieval += f"- {name} \n"
     return retrieval
 
 
@@ -230,7 +230,12 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
         use_tqdm=True,
     )
 
-    preds = [x.outputs[0].text.replace("<|im_start|>", "") for x in full_responses]
+    # question,idxをkeyとしてmisconception_idを取得する
+    candidates = defaultdict(list)
+    for row in df.iter_rows(named=True):
+        candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
+
+    preds = [x.outputs[0].text.replace("<|im_start|>", "").replace(":", "").strip() for x in full_responses]
     df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
         pl.concat_str(
             [
@@ -262,8 +267,9 @@ class DataProcessor:
     def __init__(self, cfg: DictConfig) -> None:
         for key, value in cfg.path.items():
             cfg.path[key] = Path(value)
-
-        self.output_dir = cfg.path.feature_dir / cfg.feature_version
+        if cfg.debug:
+            cfg.run_name = "debug"
+        self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
         self.output_dir.mkdir(exist_ok=True, parents=True)
 
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
@@ -292,6 +298,9 @@ class DataProcessor:
         df = add_prompt(df, misconception)
         # LLMで予測
         df = llm_inference(df, self.cfg)
+        df.select(
+            ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
+        ).write_csv(self.output_dir / "eval.csv")
         df = generate_candidates(df, misconception, self.cfg, num_candidates=self.cfg.retrieve_num)
         return df
 

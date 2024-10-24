@@ -8,6 +8,7 @@ from lightning import seed_everything
 from omegaconf import DictConfig
 from sentence_transformers import SentenceTransformer
 
+from .evaluate import add_prompt, llm_inference
 from .data_processor import sentence_emb_similarity
 
 LOGGER = logging.getLogger(__name__)
@@ -44,11 +45,22 @@ class InferencePipeline:
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
         self.cfg = cfg
         self.model_dir = self.cfg.path.model_dir / self.cfg.exp_name / self.cfg.run_name
-        assert cfg.phase == "test", "InferencePipeline only supports test phase"
+        # assert cfg.phase == "test", "InferencePipeline only supports test phase"
 
     def setup_dataset(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "test.csv")
         misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
+        # 問題-正解-不正解のペアを作る
+        correct_df = (
+            df.filter(pl.col("CorrectAnswer") == pl.col("AnswerAlphabet"))
+            .select(["QuestionId", "AnswerAlphabet", "AnswerText"])
+            .rename({"AnswerAlphabet": "CorrectAnswerAlphabet", "AnswerText": "CorrectAnswerText"})
+        )
+        df = (
+            df.join(correct_df, on=["QuestionId"], how="left")
+            .rename({"AnswerAlphabet": "InCorrectAnswerAlphabet", "AnswerText": "InCorrectAnswerText"})
+            .filter(pl.col("InCorrectAnswerAlphabet") != pl.col("CorrectAnswerAlphabet"))
+        )
         return df, misconception_mapping
 
     def setup_model(self) -> SentenceTransformer:
@@ -69,7 +81,7 @@ class InferencePipeline:
             .with_columns(
                 pl.col("MisconceptionId").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
             )
-            .filter(pl.col("CorrectAnswer") != pl.col("AnswerAlphabet"))
+            .filter(pl.col("CorrectAnswerAlphabet") != pl.col("InCorrectAnswerAlphabet"))
             .select(pl.col(["QuestionId_Answer", "MisconceptionId"]))
             .sort("QuestionId_Answer")
         )
@@ -80,9 +92,17 @@ class InferencePipeline:
         submission.write_csv(output_dir / "submission.csv")
 
     def run(self) -> None:
+        # embモデルでfirst retrieval
         df, misconception_mapping = self.setup_dataset()
         preds = []
         model = self.setup_model()
+        pred = self.inference(model, df, misconception_mapping)
+        df = df.with_columns(pl.Series(pred[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId"))
+        # llm inference
+        df = add_prompt(df, misconception_mapping)
+        df = llm_inference(df, self.cfg)
+
+        # second retreval
         pred = self.inference(model, df, misconception_mapping)
         preds.append(pred)
         self.make_submission(df, preds)
