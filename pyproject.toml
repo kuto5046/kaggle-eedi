@@ -42,7 +42,7 @@ dependencies = [
   "timm>=1.0.9",
   "torch==2.4.0+cu121",
   "torch-geometric>=2.6",
-  "transformers>=4.44.2",
+  "transformers>=4.46",
   "trl>=0.11.4",
   "vllm>=0.6.3",
   "wandb>=0.18.1",
