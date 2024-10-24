@@ -211,14 +211,35 @@ class DataProcessor:
         model = SentenceTransformer(self.cfg.model.name)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         df = df.with_columns(
-            pl.Series(sorted_similarity[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
+            pl.Series(sorted_similarity[:, : self.cfg.retrieve_numretrieve_num].tolist()).alias(
+                "PredictMisconceptionId"
+            )
         )
         df = create_retrieved(df, misconception_mapping, self.cfg)
         return df
 
+    def feature_engineering(self, df: pl.DataFrame) -> pl.DataFrame:
+        if self.cfg.retrieval_version == "v1":
+            return df
+        elif self.cfg.retrieval_version == "v2":
+            df = df.with_columns(
+                pl.concat_str(
+                    [
+                        pl.col("ConstructName"),
+                        pl.col("SubjectName"),
+                        pl.col("QuestionText"),
+                        pl.col("AnswerText"),
+                        pl.col("LLMPredictMisconceptionName"),
+                    ],
+                    separator=" ",
+                ).alias("AllText")
+            )
+            return df
+
     def run(self) -> None:
         df, misconception = self.read_data()
         df = self.preprocess(df)
+        df = self.feature_engineering(df)
         if self.cfg.phase == "train":
             df = self.add_fold(df)
             df = self.generate_candidates(df, misconception)
