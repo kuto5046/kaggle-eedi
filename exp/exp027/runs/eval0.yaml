@@ -1,0 +1,12 @@
+# @package _global_
+run_name: eval0
+notes: "学習済みのemb model&LLM"
+use_fold: 0
+
+lora_model_path: ${path.output_dir}/${exp_name}/run0
+
+max_candidates: 50  # 1つの学習データに紐づける負例の候補数
+vllm:
+  model:
+    gpu_memory_utilization: 0.90
+    max_model_len: 2048
