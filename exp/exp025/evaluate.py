@@ -10,6 +10,7 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 from numpy.typing import NDArray
+from transformers import AutoTokenizer
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
@@ -178,7 +179,7 @@ def preprocess_text(x: str) -> str:
     return x
 
 
-def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
+def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
     prompt = """Here is a question about {ConstructName}({SubjectName}).
 Question: {Question}
 Correct Answer: {CorrectAnswer}
@@ -192,6 +193,7 @@ There are some relative and possible misconceptions below to help you make the d
 
 {Retrieval}
 """
+    # TODO: chat template使ってないや
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     texts = [
         preprocess_text(
@@ -204,7 +206,25 @@ There are some relative and possible misconceptions below to help you make the d
                 Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping),
             )
         )
-        + "<|im_start|>assistant"
+        for row in df.iter_rows(named=True)
+    ]
+    if model_name == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4":
+        last_text = "<|start_header_id|>assistant<|end_header_id|>"
+    elif model_name == "Qwen/Qwen2.5-32B-Instruct-AWQ":
+        last_text = "<|im_start|>assistant"
+    else:
+        last_text = ""
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    texts = [
+        tokenizer.apply_chat_template(
+            [
+                {"role": "user", "content": row["Prompt"]},
+            ],
+            tokeadd_generation_prompt=True,
+            tokenize=False,  # textとして渡す
+        )
+        + last_text
         for row in df.iter_rows(named=True)
     ]
     df = df.with_columns(pl.Series(texts).alias("Prompt"))
@@ -295,7 +315,7 @@ class DataProcessor:
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
         df = generate_candidates(df, misconception, self.cfg, num_candidates=self.cfg.max_candidates)
-        df = add_prompt(df, misconception)
+        df = add_prompt(df, misconception, self.cfg.llm_model.name)
         # LLMで予測
         df = llm_inference(df, self.cfg)
         df.select(
