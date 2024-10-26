@@ -1442,7 +1442,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "accelerate" },
-    { name = "autoawq" },
     { name = "bitsandbytes" },
     { name = "catboost" },
     { name = "datasets" },
@@ -1491,12 +1490,11 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = ">=0.34.2" },
-    { name = "autoawq", specifier = ">=0.2.5" },
     { name = "bitsandbytes", specifier = ">=0.44.1" },
     { name = "catboost", specifier = ">=1.2.7" },
     { name = "datasets", specifier = ">=2.19.1" },
     { name = "editables", specifier = ">=0.5" },
-    { name = "hatchling", specifier = ">=1.25.0" },
+    { name = "hatchling", specifier = ">=1.25" },
     { name = "hydra-core", specifier = ">=1.3.2" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
@@ -1526,13 +1524,13 @@ requires-dist = [
     { name = "trl", specifier = ">=0.11.4" },
     { name = "vllm", specifier = ">=0.6.3" },
     { name = "wandb", specifier = ">=0.18.1" },
-    { name = "wheel", specifier = ">=0.44.0" },
+    { name = "wheel", specifier = ">=0.44" },
     { name = "xgboost", specifier = ">=2.1.1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "autoawq" },
+    { name = "autoawq", specifier = ">=0.2.5" },
     { name = "autoawq-kernels", git = "https://github.com/casper-hansen/AutoAWQ_kernels.git" },
     { name = "flash-attn", specifier = ">=2.6.3" },
 ]
