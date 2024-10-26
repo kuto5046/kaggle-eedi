@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp026
+exp_name: exp027
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "事前学習済みemb modelでretrievalしてLLMをinstruct tuning"
 tags: [
@@ -38,7 +38,7 @@ retrieval_model:
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   lora:
-    r: 8
+    r: 16
     lora_alpha: 16
     lora_dropout: 0.05
     bias: "none"
@@ -49,19 +49,19 @@ vllm:
     model: ${llm_model.name}
     quantization: awq
     tensor_parallel_size: 1
-    gpu_memory_utilization: 0.95
+    gpu_memory_utilization: 0.90
     trust_remote_code: true
     dtype: half
     enforce_eager: true
-    max_model_len: 2080
+    max_model_len: 1024
     disable_log_stats: true
     seed: ${seed}
-    enable_lora: true  # LoRAの後付けを可能にする
+    enable_lora: false  # LoRAの後付けを可能にする
 
   sampling:
-    n: 1 # Number of output sequences to return for each prompt.
-    top_p: 0.8  # Float that controls the cumulative probability of the top tokens to consider.
-    temperature: 0  # randomness of the sampling
+    n: 5 # Number of output sequences to return for each prompt.
+    top_p: 0.99  # Float that controls the cumulative probability of the top tokens to consider.
+    temperature: 0.7  # randomness of the sampling
     skip_special_tokens: false  # Whether to skip special tokens in the output.
     max_tokens: 512  # Maximum number of tokens to generate per output sequence.
     seed: ${seed}
@@ -71,7 +71,7 @@ vllm:
 # train
 #############
 trainer:
-  epoch: 1
+  epoch: 2
   batch_size: 1
   gradient_accumulation_steps: 16  # 128 // batch_size
   gradient_checkpointing: true
