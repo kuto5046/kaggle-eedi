@@ -151,7 +151,7 @@ class TrainPipeline:
             entity="kuto5046",
             name=f"{self.cfg.exp_name}_{self.cfg.run_name}",
             group=self.cfg.exp_name,
-            tags=self.cfg.tags,
+            # tags=self.cfg.tags,
             mode="disabled" if self.cfg.debug else "online",
             notes=self.cfg.notes,
         )
@@ -169,7 +169,19 @@ class TrainPipeline:
         data_collator = DataCollatorForCompletionOnlyLM(
             response_template="<|im_start|>assistant", tokenizer=self.tokenizer
         )
-        lora_config = LoraConfig(task_type=TaskType.CAUSAL_LM, **self.cfg.llm_model.lora)
+        lora_config = LoraConfig(
+            task_type=TaskType.CAUSAL_LM,
+            target_modules={
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            },
+            **self.cfg.llm_model.lora,
+        )
         model.enable_input_require_grads()
         model = get_peft_model(model, lora_config)
         LOGGER.info(model.print_trainable_parameters())
