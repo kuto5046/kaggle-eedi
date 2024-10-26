@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp024
+exp_name: exp026
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "LLMをinstruct tuningしてoofを作成"
+notes: "事前学習済みemb modelでretrievalしてLLMをinstruct tuning"
 tags: [
   # "Reranker",
   # "Embedding",
@@ -29,16 +29,12 @@ use_fold: 0
 ################
 feature_version: ${exp_name}
 
-# unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
-# ここ大きくすると全trainのうち何割のmisconceptionがtrainに含まれるかが小さくなる
-unseen_valid_rate: 0.6
-
 retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
-tolerance_negative: 25  # 類似度が真値より低い負例を何件許容するか
 
 retrieval_model:
   name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する
+  pretrained_exp_name: exp025
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   lora:

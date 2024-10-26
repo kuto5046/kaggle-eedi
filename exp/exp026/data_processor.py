@@ -151,12 +151,19 @@ def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.Dat
 
 def generate_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
-    model = SentenceTransformer(cfg.retrieval_model.name)
-    sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
-    df = df.with_columns(
-        pl.Series(sorted_similarity[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
-    ).filter(pl.col("MisconceptionId").is_not_null())
-    return df
+    df_list = []
+    for fold in range(cfg.n_splits):
+        # リークしないようにoofのモデルで候補を生成
+        model_dir = str(cfg.path.model_dir / cfg.retrieval_model.pretrained_exp_name / f"fold{fold}")
+        model = SentenceTransformer(model_dir)  # foldを見ていないモデル
+        fold_df = df.filter(pl.col("fold") == fold)  # foldのデータ
+        sorted_similarity = sentence_emb_similarity(fold_df, misconception_mapping, model)
+        fold_df = fold_df.with_columns(
+            pl.Series(sorted_similarity[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
+        )
+        df_list.append(fold_df)
+    output_df = pl.concat(df_list).filter(pl.col("MisconceptionId").is_not_null()).sort("QuestionId_Answer")
+    return output_df
 
 
 def sentence_emb_similarity(

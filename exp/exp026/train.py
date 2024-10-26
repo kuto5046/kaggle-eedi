@@ -256,7 +256,7 @@ class TrainPipeline:
         self.setup_logger()
         self.setup_dataset()
         self.training()
-        # self.evaluate()  # gpuがうまく解放できずoomになってしまう
+        self.evaluate()  # gpuがうまく解放できずoomになってしまう
         wandb.finish()  # type: ignore
 
 
