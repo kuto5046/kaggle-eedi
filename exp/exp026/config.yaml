@@ -1,0 +1,122 @@
+###############
+# experiment
+###############
+exp_name: exp024
+run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
+notes: "LLMをinstruct tuningしてoofを作成"
+tags: [
+  # "Reranker",
+  # "Embedding",
+  "LLM",
+  ]
+
+defaults:
+  - _self_
+  - path: local
+
+##############
+# common
+##############
+seed: 2024
+debug: false
+phase: train  # train, test
+# cv
+n_splits: 5  # hold-outで使うので実質fold=0しか使わない
+use_fold: 0
+
+################
+# data process
+################
+feature_version: ${exp_name}
+
+# unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
+# ここ大きくすると全trainのうち何割のmisconceptionがtrainに含まれるかが小さくなる
+unseen_valid_rate: 0.6
+
+retrieve_num: 25
+max_candidates: 25  # 1つの学習データに紐づける負例の候補数
+tolerance_negative: 25  # 類似度が真値より低い負例を何件許容するか
+
+retrieval_model:
+  name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する
+llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  lora:
+    r: 8
+    lora_alpha: 16
+    lora_dropout: 0.05
+    bias: "none"
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+
+# 推論用vllm
+vllm:
+  model:
+    model: ${llm_model.name}
+    quantization: awq
+    tensor_parallel_size: 1
+    gpu_memory_utilization: 0.95
+    trust_remote_code: true
+    dtype: half
+    enforce_eager: true
+    max_model_len: 2080
+    disable_log_stats: true
+    seed: ${seed}
+    enable_lora: true  # LoRAの後付けを可能にする
+
+  sampling:
+    n: 1 # Number of output sequences to return for each prompt.
+    top_p: 0.8  # Float that controls the cumulative probability of the top tokens to consider.
+    temperature: 0  # randomness of the sampling
+    skip_special_tokens: false  # Whether to skip special tokens in the output.
+    max_tokens: 512  # Maximum number of tokens to generate per output sequence.
+    seed: ${seed}
+
+
+#############
+# train
+#############
+trainer:
+  epoch: 1
+  batch_size: 1
+  gradient_accumulation_steps: 16  # 128 // batch_size
+  gradient_checkpointing: true
+  learning_rate: 2e-5
+  weight_decay: 0.01
+  warmup_ratio: 0.1
+  # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
+  lr_scheduler_type: cosine
+  optim: paged_adamw_8bit
+  fp16: true
+  bf16: false
+  save_strategy: steps
+  save_steps: 0.2  # training_step全体の何%ごとに保存するか
+  save_total_limit: 1  # 保存するcheckpointの最大数
+  logging_strategy: steps
+  logging_steps: 0.2  # training_step全体の何%ごとにログを出力するか
+  eval_strategy: steps
+  eval_steps: 0.2  # training_step全体の何%ごとに評価するか
+  metric_for_best_model: eval_loss
+  report_to: wandb
+
+# ---------- Overriding hydra default configs ----------
+hydra:
+  job:
+    chdir: false  # sub時はモジュール実行するため、chdirが有効化されない。そのためfalseにしておく
+  run:
+    dir: ${path.output_dir}/${exp_name}/${run_name}
+  job_logging:
+    root:
+      level: INFO
+    console:
+      enabled: true
+      format: "[%(asctime)s][%(name)s][%(levelname)s] - %(message)s"
+      level: INFO
+  searchpath:
+      - file://conf
