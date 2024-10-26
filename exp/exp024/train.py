@@ -1,6 +1,5 @@
 import gc
 import os
-import shutil
 import logging
 from pathlib import Path
 
@@ -232,18 +231,17 @@ class TrainPipeline:
             tokenizer=self.tokenizer,
             data_collator=data_collator,
         )
-        _ = trainer.train()
+        # _ = trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
-        for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
-            shutil.rmtree(ckpt_dir)
+        # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
+        #     shutil.rmtree(ckpt_dir)
 
-        # LoRA adaptorのみ保存
-        model.save_pretrained(str(self.output_dir), safe_serialization=True)
-        self.tokenizer.save_pretrained(str(self.output_dir))
+        # # LoRA adaptorのみ保存
+        # model.save_pretrained(str(self.output_dir), safe_serialization=True)
+        # self.tokenizer.save_pretrained(str(self.output_dir))
         del model, trainer
         gc.collect()
         torch.cuda.empty_cache()
-        # self.trainer.save_model(str(self.output_dir))
 
     def evaluate(self) -> None:
         torch.use_deterministic_algorithms(False)  # errorを回避
@@ -269,7 +267,7 @@ class TrainPipeline:
         self.setup_logger()
         self.setup_dataset()
         self.training()
-        self.evaluate()
+        # self.evaluate()  # gpuがうまく解放できずoomになってしまう
         wandb.finish()  # type: ignore
 
 

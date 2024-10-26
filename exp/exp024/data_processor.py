@@ -65,7 +65,7 @@ def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, 
     retrieval = ""
     for i, id in enumerate(misconception_ids):
         name = id2name_mapping[id]
-        retrieval += f"{i=}. {name} \n"
+        retrieval += f"- {name} \n"
     return retrieval
 
 
