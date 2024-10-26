@@ -99,7 +99,7 @@ class InferencePipeline:
         pred = self.inference(model, df, misconception_mapping)
         df = df.with_columns(pl.Series(pred[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId"))
         # llm inference
-        df = add_prompt(df, misconception_mapping)
+        df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
         df = llm_inference(df, self.cfg)
 
         # second retreval

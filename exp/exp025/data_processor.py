@@ -144,35 +144,7 @@ def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg:
         )
         .with_row_index(name="idx")
     )
-
-    tmp = (
-        df.with_columns((pl.col("MisconceptionId") == pl.col("PredictMisconceptionId")).alias("is_gt_candidate"))
-        .group_by("QuestionId_Answer")
-        .agg(pl.col("is_gt_candidate").sum())
-    )
-    gt_no_ids = tmp.filter(pl.col("is_gt_candidate") == 0.0)["QuestionId_Answer"].to_list()
-    gt_has_ids = tmp.filter(pl.col("is_gt_candidate") > 0.0)["QuestionId_Answer"].to_list()
-    gt_no_df = df.filter(pl.col("QuestionId_Answer").is_in(gt_no_ids))
-    gt_has_df = df.filter(pl.col("QuestionId_Answer").is_in(gt_has_ids))
-    # 学習前の時点で正しい予測より類似度が低いものに関しては学習データから除外する
-    gt_has_df = (
-        gt_has_df.with_columns(
-            [
-                # MisconceptionIdごとに0から始まるrankを付ける
-                pl.col("PredictMisconceptionId").rank().over("QuestionId_Answer").alias("rank"),
-                # MisconceptionId内でMisconceptionId=PredictMisconceptionIdとなるrankを計算
-                pl.when(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))
-                .then(pl.col("PredictMisconceptionId").rank().over("QuestionId_Answer"))
-                .otherwise(None)
-                .alias("threshold_rank"),
-            ]
-        )
-        .with_columns(pl.col("threshold_rank").max().over("QuestionId_Answer").alias("max_threshold_rank"))
-        .filter(pl.col("rank") <= pl.col("max_threshold_rank") + cfg.tolerance_negative)
-        .drop(["rank", "threshold_rank", "max_threshold_rank"])
-    )
-    output_df = pl.concat([gt_has_df, gt_no_df]).sort(["idx"]).drop("idx")
-    return output_df
+    return df
 
 
 class DataProcessor:

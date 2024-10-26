@@ -255,7 +255,13 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     for row in df.iter_rows(named=True):
         candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
 
-    preds = [x.outputs[0].text.replace("<|im_start|>", "").replace(":", "").strip() for x in full_responses]
+    # full_responses[0].outputs[0].text
+    preds = []
+    for x in full_responses:
+        pred = ""
+        for output in x.outputs:
+            pred += output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "
+        preds.append(pred)
     df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
         pl.concat_str(
             [
