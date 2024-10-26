@@ -1,5 +1,6 @@
 import gc
 import os
+import shutil
 import logging
 from pathlib import Path
 
@@ -161,28 +162,14 @@ class TrainPipeline:
             torch_dtype=torch.float16,
             # quantization_config=quantization_config,
             use_cache=False,
+            # attn_implementation="flash_attention_2",  # メモリ節約目的だが変わらず
             device_map="auto",
         )
 
         data_collator = DataCollatorForCompletionOnlyLM(
             response_template="<|im_start|>assistant", tokenizer=self.tokenizer
         )
-        lora_config = LoraConfig(
-            r=8,
-            lora_alpha=16,
-            lora_dropout=0.05,
-            task_type=TaskType.CAUSAL_LM,
-            bias="none",
-            target_modules=(
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ),
-        )
+        lora_config = LoraConfig(task_type=TaskType.CAUSAL_LM, **self.cfg.llm_model.lora)
         model.enable_input_require_grads()
         model = get_peft_model(model, lora_config)
         LOGGER.info(model.print_trainable_parameters())
@@ -231,17 +218,19 @@ class TrainPipeline:
             tokenizer=self.tokenizer,
             data_collator=data_collator,
         )
-        # _ = trainer.train()
+        _ = trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
-        # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
-        #     shutil.rmtree(ckpt_dir)
+        for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
+            shutil.rmtree(ckpt_dir)
 
-        # # LoRA adaptorのみ保存
-        # model.save_pretrained(str(self.output_dir), safe_serialization=True)
-        # self.tokenizer.save_pretrained(str(self.output_dir))
+        # LoRA adaptorのみ保存
+        model.save_pretrained(str(self.output_dir), safe_serialization=True)
+        self.tokenizer.save_pretrained(str(self.output_dir))
+        del trainer.optimizer, trainer.lr_scheduler
         del model, trainer
         gc.collect()
         torch.cuda.empty_cache()
+        torch.cuda.synchronize()
 
     def evaluate(self) -> None:
         torch.use_deterministic_algorithms(False)  # errorを回避
