@@ -1,0 +1,15 @@
+# @package _global_
+run_name: eval4
+notes: "学習済みのemb model"
+use_fold: 0
+
+retrieval_model:
+  # name: BAAI/bge-large-en-v1.5
+  # use_foldを見ていないモデル
+  name: ${path.output_dir}/${exp_name}/fold${use_fold}
+
+max_candidates: 25  # 1つの学習データに紐づける負例の候補数
+vllm:
+  model:
+    gpu_memory_utilization: 0.90
+    max_model_len: 2048
