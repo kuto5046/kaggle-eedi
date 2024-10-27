@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp025
+exp_name: exp029
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "embモデルの5foldで作成する"
+notes: "gte embモデルの5foldで作成する"
 tags: []
 
 defaults:
@@ -34,7 +34,7 @@ retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
 
 retrieval_model:
-  name: BAAI/bge-large-en-v1.5  # ここを変える場合data_processorを再実行する
+  name: Alibaba-NLP/gte-base-en-v1.5  # ここを変える場合data_processorを再実行する
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
 

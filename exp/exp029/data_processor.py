@@ -39,6 +39,18 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
         )
         .sort("QuestionId_Answer")
     )
+    # 問題-正解-不正解のペアを作る
+    correct_df = (
+        long_df.filter(pl.col("CorrectAnswer") == pl.col("AnswerAlphabet"))
+        .select(["QuestionId", "AnswerAlphabet", "AnswerText"])
+        .rename({"AnswerAlphabet": "CorrectAnswerAlphabet", "AnswerText": "CorrectAnswerText"})
+    )
+    long_df = (
+        long_df.join(correct_df, on=["QuestionId"], how="left")
+        .rename({"AnswerAlphabet": "InCorrectAnswerAlphabet", "AnswerText": "InCorrectAnswerText"})
+        .filter(pl.col("InCorrectAnswerAlphabet") != pl.col("CorrectAnswerAlphabet"))
+        .drop(["AnswerType", "CorrectAnswer"])
+    )
     return long_df
 
 
@@ -128,22 +140,21 @@ def sentence_emb_similarity(
     return sorted_similarity
 
 
-def create_retrieved(df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    df = (
-        df.filter(
-            pl.col("MisconceptionId").is_not_null()  # TODO: Consider ways to utilize data where MisconceptionId is NaN.
-        )
-        .explode("PredictMisconceptionId")
-        .join(
-            misconception_mapping,
-            on="MisconceptionId",
-        )
-        .join(
-            misconception_mapping.rename(lambda x: "Predict" + x),
-            on="PredictMisconceptionId",
-        )
-        .with_row_index(name="idx")
+def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
+    df = df.explode("PredictMisconceptionId").join(
+        misconception_mapping.rename(lambda x: "Predict" + x),
+        on="PredictMisconceptionId",
     )
+    return df
+
+
+def generate_candidates(
+    df: pl.DataFrame, misconception_mapping: pl.DataFrame, retrieval_model_name: str, num_candidates: int
+) -> pl.DataFrame:
+    # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
+    model = SentenceTransformer(retrieval_model_name, trust_remote_code=True)
+    sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
+    df = df.with_columns(pl.Series(sorted_similarity[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
     return df
 
 
@@ -164,40 +175,26 @@ class DataProcessor:
         misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
         return df, misconception_mapping
 
-    def preprocess(self, input_df: pl.DataFrame) -> pl.DataFrame:
+    def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
+        return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
+
+    def run(self) -> None:
+        input_df, misconception = self.read_data()
         df = preprocess_table(input_df, self.common_cols)
-        if self.cfg.phase == "test":
-            return df
-        else:
+        if self.cfg.phase == "train":
             # misconception情報(target)を取得
             pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
-            return df
-
-    def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
-        return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
-
-    def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
-        # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
-        model = SentenceTransformer(self.cfg.retrieval_model.name)
-        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
-        df = df.with_columns(
-            pl.Series(sorted_similarity[:, : self.cfg.retrieve_numretrieve_num].tolist()).alias(
-                "PredictMisconceptionId"
-            )
-        )
-        df = create_retrieved(df, misconception_mapping, self.cfg)
-        return df
-
-    def run(self) -> None:
-        df, misconception = self.read_data()
-        df = self.preprocess(df)
-        if self.cfg.phase == "train":
             df = self.add_fold(df)
-            df = self.generate_candidates(df, misconception)
+            # 学習用の候補を生成する
+            df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
+            df = explode_candidates(df, misconception)
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
+        else:
+            df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
+            df = explode_candidates(df, misconception)
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
 
