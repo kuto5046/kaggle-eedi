@@ -44,7 +44,6 @@ class InferencePipeline:
 
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
         self.cfg = cfg
-        self.model_dir = self.cfg.path.model_dir / self.cfg.exp_name / self.cfg.run_name
         # assert cfg.phase == "test", "InferencePipeline only supports test phase"
 
     def setup_dataset(self) -> tuple[pl.DataFrame, pl.DataFrame]:
@@ -64,7 +63,7 @@ class InferencePipeline:
         return df, misconception_mapping
 
     def setup_model(self) -> SentenceTransformer:
-        return SentenceTransformer(str(self.model_dir))
+        return SentenceTransformer(str(self.cfg.retrieval_model.name))
 
     def inference(
         self, model: SentenceTransformer, df: pl.DataFrame, misconception_mapping: pl.DataFrame
