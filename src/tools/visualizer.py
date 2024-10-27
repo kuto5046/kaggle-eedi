@@ -4,6 +4,7 @@ import polars as pl
 import streamlit as st
 from streamlit.delta_generator import DeltaGenerator
 
+# TODO: set your competition data path
 INPUT_DIR = Path("/home/user/work/input/eedi-mining-misconceptions-in-mathematics")
 
 
@@ -29,11 +30,11 @@ def plot_answer(
         if is_correct_answer:
             st.write(f"{alphabet} (Correct Answer)")
             st.success(f"Answer: {replace_latex(answer)}")
-            st.success(f"Misconception: {misconception_name} ({misconception_id})")
+            st.success(f"Misconception: {misconception_name} (id={misconception_id})")
         else:
             st.write(alphabet)
             st.error(f"Answer: {replace_latex(answer)}")
-            st.error(f"Misconception: {misconception_name} ({misconception_id})")
+            st.error(f"Misconception: {misconception_name} (id={misconception_id})")
 
 
 def main() -> None:
