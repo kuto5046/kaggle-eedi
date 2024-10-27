@@ -193,7 +193,6 @@ There are some relative and possible misconceptions below to help you make the d
 
 {Retrieval}
 """
-    # TODO: chat template使ってないや
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     texts = [
         preprocess_text(

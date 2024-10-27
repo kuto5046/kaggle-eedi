@@ -180,7 +180,7 @@ class DataProcessor:
 
     def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
         # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
-        model = SentenceTransformer(self.cfg.model.name)
+        model = SentenceTransformer(self.cfg.retrieval_model.name)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         df = df.with_columns(
             pl.Series(sorted_similarity[:, : self.cfg.retrieve_numretrieve_num].tolist()).alias(
