@@ -190,6 +190,7 @@ class DataProcessor:
             # 学習用の候補を生成する
             df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
             df = explode_candidates(df, misconception)
+            df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         else:
