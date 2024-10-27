@@ -6,8 +6,14 @@ dockerで環境構築を行う。
 ```bash
 docker compose up -d --build
 ```
+
 あとはvscodeのdevcontainerでコンテナに入って作業する
 
+uvは2段階でインストールする
+```bash
+uv sync --no-dev
+uv sync --dev --no-build-isolation
+```
 ## dataset準備
 docker内だとkaggle APIが有効になっている
 
