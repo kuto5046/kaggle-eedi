@@ -209,7 +209,7 @@ There are some relative and possible misconceptions below to help you make the d
     ]
     if model_name == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4":
         last_text = "<|start_header_id|>assistant<|end_header_id|>"
-    elif model_name == "Qwen/Qwen2.5-32B-Instruct-AWQ":
+    elif model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ", "/kaggle/input/qwen2.5/transformers/32b-instruct-awq/1"]:
         last_text = "<|im_start|>assistant"
     else:
         last_text = ""
@@ -254,7 +254,6 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     for row in df.iter_rows(named=True):
         candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
 
-    # full_responses[0].outputs[0].text
     preds = []
     for x in full_responses:
         pred = ""

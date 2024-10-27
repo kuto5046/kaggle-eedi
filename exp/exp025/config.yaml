@@ -54,9 +54,9 @@ vllm:
     enable_lora: false  # LoRAの後付けを可能にする
 
   sampling:
-    n: 5 # Number of output sequences to return for each prompt.
+    n: 1 # Number of output sequences to return for each prompt.
     top_p: 0.99  # Float that controls the cumulative probability of the top tokens to consider.
-    temperature: 0.7  # randomness of the sampling
+    temperature: 0.0  # randomness of the sampling
     skip_special_tokens: false  # Whether to skip special tokens in the output.
     max_tokens: 512  # Maximum number of tokens to generate per output sequence.
     seed: ${seed}

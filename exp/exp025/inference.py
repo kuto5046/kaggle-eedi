@@ -100,7 +100,7 @@ class InferencePipeline:
         # llm inference
         df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
         df = llm_inference(df, self.cfg)
-
+        # df.select(["QuestionId", "LLMPredictMisconceptionName"]).write_csv(self.cfg.path.sub_dir / "llm_pred.csv")
         # second retreval
         pred = self.inference(model, df, misconception_mapping)
         preds.append(pred)
