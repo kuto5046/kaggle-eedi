@@ -176,7 +176,7 @@ class DataProcessor:
             return df
 
     def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
-        return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
+        return get_groupkfold(df, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
 
     def generate_candidates(self, df: pl.DataFrame, misconception_mapping: pl.DataFrame) -> pl.DataFrame:
         # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得

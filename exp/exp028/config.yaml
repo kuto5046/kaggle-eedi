@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp025
+exp_name: exp028
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "embモデルの5foldで作成する"
+notes: "embモデルのmisconception idをgroupとして5foldで作成する"
 tags: []
 
 defaults:
@@ -25,11 +25,6 @@ use_fold: 0
 # data process
 ################
 feature_version: ${exp_name}
-
-# unseenとして確保したquestionの何割をvalidに使うか。validの最終的なunseen_rateがこの値になるわけではない
-# ここ大きくすると全trainのうち何割のmisconceptionがtrainに含まれるかが小さくなる
-unseen_valid_rate: 0.6
-
 retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
 
