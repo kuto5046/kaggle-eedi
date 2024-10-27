@@ -118,7 +118,7 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        self.model = CustomSentenceTransformer(self.cfg.model.name)
+        self.model = CustomSentenceTransformer(self.cfg.retrieval_model.name)
 
         loss = MultipleNegativesRankingLoss(self.model)
         params = self.cfg.trainer
