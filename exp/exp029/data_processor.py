@@ -76,9 +76,10 @@ def preprocess_misconception(df: pl.DataFrame, common_cols: list[str]) -> pl.Dat
 
 
 def calc_recall(df: pl.DataFrame) -> float:
+    df2 = df.explode("PredictMisconceptionId")
     return (
-        df.filter(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))["QuestionId_Answer"].n_unique()
-        / df["QuestionId_Answer"].n_unique()
+        df2.filter(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))["QuestionId_Answer"].n_unique()
+        / df2["QuestionId_Answer"].n_unique()
     )
 
 
@@ -93,17 +94,20 @@ def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> f
 
 
 def calc_mapk(df: pl.DataFrame) -> float:
+    """
+    Question:str - MisconceptionId: int - PredictMisconceptionId: list[int]のペアのdataframeを入力とする
+    """
     agg_df = (
-        df.group_by(["QuestionId_Answer"], maintain_order=True)
-        .agg(pl.col("PredictMisconceptionId").alias("Predict"))
-        .with_columns(pl.col("Predict").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+        df.with_columns(
+            pl.col("PredictMisconceptionId").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
+        )
         .join(
             df[["QuestionId_Answer", "MisconceptionId"]].unique(),
             on=["QuestionId_Answer"],
         )
         .sort(by=["QuestionId_Answer"])
     )
-    return mapk(agg_df["Predict"].to_numpy(), agg_df["MisconceptionId"])
+    return mapk(agg_df["PredictMisconceptionId"].to_numpy(), agg_df["MisconceptionId"])
 
 
 def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> pl.DataFrame:
@@ -189,13 +193,13 @@ class DataProcessor:
             df = self.add_fold(df)
             # 学習用の候補を生成する
             df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
-            df = explode_candidates(df, misconception)
-            df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
+            # df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         else:
             df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
-            df = explode_candidates(df, misconception)
+
+        df = explode_candidates(df, misconception)
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
 

@@ -50,14 +50,16 @@ class DataProcessor:
         return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
-        df = generate_candidates(df, misconception, self.cfg, num_candidates=self.cfg.max_candidates)
+        df = generate_candidates(
+            df, misconception, self.cfg.retrieval_model.name, num_candidates=self.cfg.max_candidates
+        )
         df = add_prompt(df, misconception, self.cfg.llm_model.name)
         # LLMで予測
         df = llm_inference(df, self.cfg)
         df.select(
             ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
         ).write_csv(self.output_dir / "eval.csv")
-        df = generate_candidates(df, misconception, self.cfg, num_candidates=self.cfg.retrieve_num)
+        df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, num_candidates=self.cfg.retrieve_num)
         return df
 
     def run(self) -> None:
