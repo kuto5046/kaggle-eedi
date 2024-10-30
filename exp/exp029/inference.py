@@ -1,3 +1,4 @@
+import gc
 import re
 import logging
 from pathlib import Path
@@ -5,6 +6,7 @@ from collections import defaultdict
 
 import vllm
 import hydra
+import torch
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
@@ -116,6 +118,11 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
         # lora_request=LoRARequest("adapter", 1, self.output_dir),
         use_tqdm=True,
     )
+
+    del llm
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
 
     # question,idxをkeyとしてmisconception_idを取得する
     candidates = defaultdict(list)
