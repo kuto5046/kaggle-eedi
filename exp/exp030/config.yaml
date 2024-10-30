@@ -3,7 +3,7 @@
 ###############
 exp_name: exp030
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "gte embモデルの5foldで作成する"
+notes: "gte large embモデルの5foldで作成する"
 tags: []
 
 defaults:
@@ -38,6 +38,8 @@ retrieval_model:
   # アンサンブルで利用するモデルのパス
   names:
     - ${retrieval_model.name}
+  weights:
+    - 1.0
 
 
 llm_model:

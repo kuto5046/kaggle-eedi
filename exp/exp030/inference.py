@@ -186,7 +186,13 @@ class InferencePipeline:
         df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
         df = llm_inference(df, self.cfg)
         # second retreval
-        df = generate_candidates(df, misconception_mapping, self.cfg.retrieval_model.names, self.cfg.retrieve_num)
+        df = generate_candidates(
+            df,
+            misconception_mapping,
+            self.cfg.retrieval_model.names,
+            self.cfg.retrieve_num,
+            self.cfg.retrieval_model.weights,
+        )
         self.make_submission(df)
 
 
