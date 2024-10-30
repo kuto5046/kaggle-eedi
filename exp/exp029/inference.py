@@ -9,7 +9,6 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import AutoTokenizer
-from sentence_transformers import SentenceTransformer
 
 from .data_processor import generate_candidates
 
@@ -156,10 +155,12 @@ class InferencePipeline:
     def setup_dataset(self) -> tuple[pl.DataFrame, pl.DataFrame]:
         df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "test.csv")
         misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
-        return df, misconception_mapping
 
-    def setup_model(self) -> SentenceTransformer:
-        return SentenceTransformer(str(self.cfg.retrieval_model.name))
+        group_cols = df.drop(["PredictMisconceptionId", "PredictMisconceptionName"]).columns
+        df = df.group_by(group_cols, maintain_order=True).agg(
+            pl.col("PredictMisconceptionId").alias("PredictMisconceptionId")
+        )
+        return df, misconception_mapping
 
     def make_submission(self, df: pl.DataFrame) -> None:
         submission = (
@@ -181,12 +182,11 @@ class InferencePipeline:
     def run(self) -> None:
         # embモデルでfirst retrieval
         df, misconception_mapping = self.setup_dataset()
-        model = self.setup_model()
         # llm inference
         df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
         df = llm_inference(df, self.cfg)
         # second retreval
-        df = generate_candidates(df, misconception_mapping, model, self.cfg.retrieve_num)
+        df = generate_candidates(df, misconception_mapping, self.cfg.retrieval_model.names, self.cfg.retrieve_num)
         self.make_submission(df)
 
 

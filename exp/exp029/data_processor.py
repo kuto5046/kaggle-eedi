@@ -153,14 +153,15 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
 
 
 def generate_candidates(
-    df: pl.DataFrame, misconception_mapping: pl.DataFrame, retrieval_model_names: list[str], num_candidates: int
+    df: pl.DataFrame, misconception_mapping: pl.DataFrame, retrieval_model_names: list[str | Path], num_candidates: int
 ) -> pl.DataFrame:
     # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
     preds = []
     for retrieval_model_name in retrieval_model_names:
-        model = SentenceTransformer(retrieval_model_name, trust_remote_code=True)
+        print(str(retrieval_model_name))
+        model = SentenceTransformer(str(retrieval_model_name), trust_remote_code=True)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
-        preds.append(sorted_similarity)
+        preds.append(sorted_similarity[:, : num_candidates + 10])  # アンサンブル用に大きめに計算
     pred = ensemble_predictions(preds)
     df = df.with_columns(pl.Series(pred[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
     return df

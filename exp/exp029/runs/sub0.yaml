@@ -1,0 +1,22 @@
+# @package _global_
+run_name: sub0
+
+vllm:
+  model:
+    max_model_len: 2048
+
+retrieval_model:
+  name: ${path.model_dir}/exp025/fold0
+  names:
+    - ${path.model_dir}/exp025/fold0
+    - ${path.model_dir}/exp025/fold1
+    - ${path.model_dir}/exp025/fold2
+    - ${path.model_dir}/exp025/fold3
+    - ${path.model_dir}/exp025/fold4
+    - ${path.model_dir}/exp029/fold0
+    - ${path.model_dir}/exp029/fold1
+    - ${path.model_dir}/exp029/fold2
+    - ${path.model_dir}/exp029/fold3
+    - ${path.model_dir}/exp029/fold4
+
+max_candidates: 30  # 1つの学習データに紐づける負例の候補数
