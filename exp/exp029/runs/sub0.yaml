@@ -13,21 +13,21 @@ retrieval_model:
     - ${path.model_dir}/exp025/fold2
     - ${path.model_dir}/exp025/fold3
     - ${path.model_dir}/exp025/fold4
-    - ${path.model_dir}/exp029/fold0
-    - ${path.model_dir}/exp029/fold1
-    - ${path.model_dir}/exp029/fold2
-    - ${path.model_dir}/exp029/fold3
-    - ${path.model_dir}/exp029/fold4
+    # - ${path.model_dir}/exp029/fold0
+    # - ${path.model_dir}/exp029/fold1
+    # - ${path.model_dir}/exp029/fold2
+    # - ${path.model_dir}/exp029/fold3
+    # - ${path.model_dir}/exp029/fold4
   weights:
-    - 2.0
-    - 2.0
-    - 2.0
-    - 2.0
-    - 2.0
     - 1.0
     - 1.0
     - 1.0
     - 1.0
     - 1.0
+    # - 1.0
+    # - 1.0
+    # - 1.0
+    # - 1.0
+    # - 1.0
 
 max_candidates: 30  # 1つの学習データに紐づける負例の候補数
