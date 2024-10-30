@@ -5,7 +5,6 @@ from collections import defaultdict
 
 import vllm
 import hydra
-import numpy as np
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
@@ -88,7 +87,28 @@ def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, 
 
 
 def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    llm = vllm.LLM(**cfg.vllm.model)
+    if cfg.llm_model.name in ["Qwen/Qwen2.5-Math-7B-Instruct"]:
+        # https://docs.vllm.ai/en/v0.6.0/quantization/auto_awq.html
+        # quant_config = { "zero_point": True, "q_group_size": 128, "w_bit": 4, "version": "GEMM" }
+        # quant_path = str(cfg.path.output_dir)
+        # # Load model
+        # model = AutoAWQForCausalLM.from_pretrained(
+        #     cfg.llm_model.name,
+        #     device_map="cpu",
+        #     **{"low_cpu_mem_usage": True, "use_cache": False}
+        # )
+        # tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model.name, trust_remote_code=True).to("cpu")
+
+        # # Quantize
+        # model.quantize(tokenizer, quant_config=quant_config)
+
+        # # Save quantized model
+        # model.save_quantized(quant_path)
+        # tokenizer.save_pretrained(quant_path)
+        # cfg.vllm.model.model = quant_path
+        llm = vllm.LLM(**cfg.vllm.model)
+    else:
+        llm = vllm.LLM(**cfg.vllm.model)
     # tokenizer = llm.get_tokenizer()
     sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
     full_responses = llm.generate(
@@ -122,29 +142,6 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
         ).alias("AllText")
     )
     return df
-
-
-# https://www.kaggle.com/code/titericz/h-m-ensembling-how-to
-def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = None, top_k: int = 25) -> np.ndarray:
-    if weights is None:
-        weights = [1] * len(preds)
-
-    sample_size = preds[0].shape[0]
-    blend_results = []
-    for i in range(sample_size):
-        scores: dict[int, float] = {}
-        for j in range(len(preds)):
-            w = weights[j]
-            # 順位に応じて重みをつける
-            for k, pred_misconception_id in enumerate(preds[j][i]):
-                if pred_misconception_id in scores:
-                    scores[pred_misconception_id] += w / (k + 1)
-                else:
-                    scores[pred_misconception_id] = w / (k + 1)
-        # Sort dictionary by item weights
-        result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())[:top_k]
-        blend_results.append(result)
-    return np.array(blend_results)
 
 
 class InferencePipeline:

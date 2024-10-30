@@ -1,0 +1,9 @@
+# @package _global_
+run_name: eval2
+use_fold: 0
+
+retrieval_model:
+  name: ${path.output_dir}/${exp_name}/fold${use_fold}
+
+llm_model:
+  name: Qwen/Qwen2.5-14B-Instruct-AWQ

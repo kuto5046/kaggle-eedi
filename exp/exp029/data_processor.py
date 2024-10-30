@@ -153,13 +153,40 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
 
 
 def generate_candidates(
-    df: pl.DataFrame, misconception_mapping: pl.DataFrame, retrieval_model_name: str, num_candidates: int
+    df: pl.DataFrame, misconception_mapping: pl.DataFrame, retrieval_model_names: list[str], num_candidates: int
 ) -> pl.DataFrame:
     # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
-    model = SentenceTransformer(retrieval_model_name, trust_remote_code=True)
-    sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
-    df = df.with_columns(pl.Series(sorted_similarity[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
+    preds = []
+    for retrieval_model_name in retrieval_model_names:
+        model = SentenceTransformer(retrieval_model_name, trust_remote_code=True)
+        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
+        preds.append(sorted_similarity)
+    pred = ensemble_predictions(preds)
+    df = df.with_columns(pl.Series(pred[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
     return df
+
+
+# https://www.kaggle.com/code/titericz/h-m-ensembling-how-to
+def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = None, top_k: int = 25) -> np.ndarray:
+    if weights is None:
+        weights = [1] * len(preds)
+
+    sample_size = preds[0].shape[0]
+    blend_results = []
+    for i in range(sample_size):
+        scores: dict[int, float] = {}
+        for j in range(len(preds)):
+            w = weights[j]
+            # 順位に応じて重みをつける
+            for k, pred_misconception_id in enumerate(preds[j][i]):
+                if pred_misconception_id in scores:
+                    scores[pred_misconception_id] += w / (k + 1)
+                else:
+                    scores[pred_misconception_id] = w / (k + 1)
+        # Sort dictionary by item weights
+        result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())[:top_k]
+        blend_results.append(result)
+    return np.array(blend_results)
 
 
 class DataProcessor:
@@ -197,7 +224,7 @@ class DataProcessor:
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         else:
-            df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
+            df = generate_candidates(df, misconception, self.cfg.retrieval_model.names, self.cfg.max_candidates)
 
         df = explode_candidates(df, misconception)
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
