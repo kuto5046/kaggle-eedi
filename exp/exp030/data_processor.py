@@ -1,8 +1,10 @@
+import gc
 import logging
 from pathlib import Path
 
 import hydra
 import numpy as np
+import torch
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
@@ -171,6 +173,11 @@ def generate_candidates(
         preds.append(sorted_similarity[:, : num_candidates + 10])  # アンサンブル用に大きめに計算
     pred = ensemble_predictions(preds, weights)
     df = df.with_columns(pl.Series(pred[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
+
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
     return df
 
 
