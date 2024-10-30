@@ -171,13 +171,15 @@ def generate_candidates(
         )
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         preds.append(sorted_similarity[:, : num_candidates + 10])  # アンサンブル用に大きめに計算
+
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
     pred = ensemble_predictions(preds, weights)
     df = df.with_columns(pl.Series(pred[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
 
-    del model
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
     return df
 
 
