@@ -38,6 +38,8 @@ retrieval_model:
   # アンサンブルで利用するモデルのパス
   names:
     - ${retrieval_model.name}
+  weights:
+    - 1.0
 
 
 llm_model:
@@ -68,6 +70,7 @@ vllm:
     temperature: 0.0  # randomness of the sampling
     skip_special_tokens: false  # Whether to skip special tokens in the output.
     max_tokens: 512  # Maximum number of tokens to generate per output sequence.
+    logprobs: 1  # yes/noなのでrank=1のtokenの確率を得られればよい
     seed: ${seed}
 
 

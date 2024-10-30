@@ -38,6 +38,7 @@ ignore = [
 	"S101",   # allow assertion
 	"TRY003", # allow long exception message
 	"PLR0913",
+	"E501",  # allow long text
 ]
 
 [lint.flake8-annotations]

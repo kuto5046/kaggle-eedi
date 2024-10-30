@@ -1,0 +1,13 @@
+# @package _global_
+run_name: eval0
+use_fold: 0
+
+vllm:
+  model:
+    max_model_len: 2048
+
+retrieval_model:
+  names:
+    - ${path.model_dir}/exp025/fold0
+
+max_candidates: 25  # 1つの学習データに紐づける負例の候補数
