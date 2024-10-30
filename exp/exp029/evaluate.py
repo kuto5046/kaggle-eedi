@@ -56,6 +56,7 @@ class DataProcessor:
             self.cfg.retrieval_model.names,
             num_candidates=self.cfg.max_candidates,
             weights=self.cfg.retrieval_model.weights,
+            local_files_only=True,
         )
         df = add_prompt(df, misconception, self.cfg.llm_model.name)
         # LLMで予測
@@ -69,6 +70,7 @@ class DataProcessor:
             self.cfg.retrieval_model.names,
             num_candidates=self.cfg.retrieve_num,
             weights=self.cfg.retrieval_model.weights,
+            local_files_only=True,
         )
         return df
 
