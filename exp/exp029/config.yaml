@@ -38,6 +38,8 @@ retrieval_model:
   # アンサンブルで利用するモデルのパス
   names:
     - ${retrieval_model.name}
+  weights:
+    - 1.0
 
 
 llm_model:

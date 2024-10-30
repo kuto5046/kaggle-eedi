@@ -51,7 +51,11 @@ class DataProcessor:
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
         df = generate_candidates(
-            df, misconception, self.cfg.retrieval_model.names, num_candidates=self.cfg.max_candidates
+            df,
+            misconception,
+            self.cfg.retrieval_model.names,
+            num_candidates=self.cfg.max_candidates,
+            weights=self.cfg.retrieval_model.weights,
         )
         df = add_prompt(df, misconception, self.cfg.llm_model.name)
         # LLMで予測
@@ -60,7 +64,11 @@ class DataProcessor:
             ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
         ).write_csv(self.output_dir / "eval.csv")
         df = generate_candidates(
-            df, misconception, self.cfg.retrieval_model.names, num_candidates=self.cfg.retrieve_num
+            df,
+            misconception,
+            self.cfg.retrieval_model.names,
+            num_candidates=self.cfg.retrieve_num,
+            weights=self.cfg.retrieval_model.weights,
         )
         return df
 

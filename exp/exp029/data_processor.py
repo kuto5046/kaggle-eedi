@@ -153,7 +153,11 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
 
 
 def generate_candidates(
-    df: pl.DataFrame, misconception_mapping: pl.DataFrame, retrieval_model_names: list[str | Path], num_candidates: int
+    df: pl.DataFrame,
+    misconception_mapping: pl.DataFrame,
+    retrieval_model_names: list[str | Path],
+    num_candidates: int,
+    weights: list[float] | None = None,
 ) -> pl.DataFrame:
     # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
     preds = []
@@ -162,7 +166,7 @@ def generate_candidates(
         model = SentenceTransformer(str(retrieval_model_name), trust_remote_code=True)
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         preds.append(sorted_similarity[:, : num_candidates + 10])  # アンサンブル用に大きめに計算
-    pred = ensemble_predictions(preds)
+    pred = ensemble_predictions(preds, weights)
     df = df.with_columns(pl.Series(pred[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
     return df
 
@@ -225,7 +229,13 @@ class DataProcessor:
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         else:
-            df = generate_candidates(df, misconception, self.cfg.retrieval_model.names, self.cfg.max_candidates)
+            df = generate_candidates(
+                df,
+                misconception,
+                self.cfg.retrieval_model.names,
+                self.cfg.max_candidates,
+                self.cfg.retrieval_model.weights,
+            )
 
         df = explode_candidates(df, misconception)
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
