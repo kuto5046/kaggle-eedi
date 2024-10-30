@@ -220,7 +220,7 @@ class DataProcessor:
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
             # 学習用の候補を生成する
-            df = generate_candidates(df, misconception, self.cfg.retrieval_model.name, self.cfg.max_candidates)
+            df = generate_candidates(df, misconception, [self.cfg.retrieval_model.name], self.cfg.max_candidates)
             # df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
