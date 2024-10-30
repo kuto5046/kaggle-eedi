@@ -1,8 +1,10 @@
+import gc
 import logging
 from pathlib import Path
 
 import hydra
 import numpy as np
+import torch
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
@@ -158,16 +160,26 @@ def generate_candidates(
     retrieval_model_names: list[str | Path],
     num_candidates: int,
     weights: list[float] | None = None,
+    local_files_only: bool = False,
 ) -> pl.DataFrame:
     # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
     preds = []
     for retrieval_model_name in retrieval_model_names:
         print(str(retrieval_model_name))
-        model = SentenceTransformer(str(retrieval_model_name), trust_remote_code=True)
+        model = SentenceTransformer(
+            str(retrieval_model_name), local_files_only=local_files_only, trust_remote_code=True
+        )
         sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         preds.append(sorted_similarity[:, : num_candidates + 10])  # アンサンブル用に大きめに計算
+
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+
     pred = ensemble_predictions(preds, weights)
     df = df.with_columns(pl.Series(pred[:, :num_candidates].tolist()).alias("PredictMisconceptionId"))
+
     return df
 
 
@@ -235,6 +247,7 @@ class DataProcessor:
                 self.cfg.retrieval_model.names,
                 self.cfg.max_candidates,
                 self.cfg.retrieval_model.weights,
+                local_files_only=True,
             )
 
         df = explode_candidates(df, misconception)
