@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp029
+exp_name: exp030
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "gte embモデルの5foldで作成する"
 tags: []
@@ -34,7 +34,7 @@ retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
 
 retrieval_model:
-  name: Alibaba-NLP/gte-base-en-v1.5
+  name: Alibaba-NLP/gte-large-en-v1.5
   # アンサンブルで利用するモデルのパス
   names:
     - ${retrieval_model.name}
