@@ -192,6 +192,7 @@ class InferencePipeline:
             self.cfg.retrieval_model.names,
             self.cfg.retrieve_num,
             self.cfg.retrieval_model.weights,
+            local_files_only=True,
         )
         self.make_submission(df)
 
