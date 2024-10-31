@@ -1,6 +1,0 @@
-# @package _global_
-run_name: fold3_epoch3
-use_fold: 3
-
-trainer:
-  epoch: 3
