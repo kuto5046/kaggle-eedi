@@ -56,19 +56,20 @@ class DataProcessor:
             self.cfg.retrieval_model.names,
             num_candidates=self.cfg.max_candidates,
             weights=self.cfg.retrieval_model.weights,
+            local_files_only=True,
         )
+        df = df.explode("PredictMisconceptionId")
         df = add_prompt(df, misconception, self.cfg.llm_model.name)
         # LLMで予測
         df = llm_inference(df, self.cfg)
-        df.select(
-            ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
-        ).write_csv(self.output_dir / "eval.csv")
-        df = generate_candidates(
-            df,
-            misconception,
-            self.cfg.retrieval_model.names,
-            num_candidates=self.cfg.retrieve_num,
-            weights=self.cfg.retrieval_model.weights,
+        df.select(["QuestionId_Answer", "MisconceptionId", "PredictMisconceptionId", "prob"]).write_csv(
+            self.output_dir / "eval.csv"
+        )
+
+        df = (
+            df.sort(["QuestionId_Answer", "prob"], descending=[False, True])
+            .group_by(["QuestionId_Answer"])
+            .agg(["PredictMisconceptionId"])
         )
         return df
 
@@ -76,7 +77,7 @@ class DataProcessor:
         df, misconception = self.read_data()
         df = self.preprocess(df, misconception)
         df = self.add_fold(df)
-        use_df = df.filter(pl.col("fold") == self.cfg.use_fold).sample(n=100, shuffle=True, seed=self.cfg.seed)
+        use_df = df.filter(pl.col("fold") == self.cfg.use_fold).sample(n=5, shuffle=True, seed=self.cfg.seed)
         use_df = self.feature_engineering(use_df, misconception)
         LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(use_df)}")
         LOGGER.info(f"recall: {calc_recall(use_df):.5f}")

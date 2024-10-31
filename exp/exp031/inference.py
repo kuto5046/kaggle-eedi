@@ -1,3 +1,4 @@
+import gc
 import re
 import logging
 from pathlib import Path
@@ -5,7 +6,7 @@ from collections import defaultdict
 
 import vllm
 import hydra
-import numpy as np
+import torch
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
@@ -28,32 +29,20 @@ def preprocess_text(x: str) -> str:
 
 
 def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
-    prompt = """You are a Mathematics teacher with the task of evaluating a student's understanding.
-The student has answered a question about {ConstructName} ({SubjectName}) incorrectly.
-Your task is to carefully analyze and reason through the question and the student's incorrect answer
-to determine whether the given Misconception accurately describes the student's misunderstanding.
+    prompt = """Here is a question about {ConstructName}({SubjectName}).
+Question: {Question}
+Correct Answer: {CorrectAnswer}
+Incorrect Answer: {IncorrectAnswer}
 
-Here is the detailed information:
+You are a Mathematics teacher.
+Your task is to reason and identify the misconception behind the Incorrect Answer with the Question in English.
+Answer concisely what misconception it is to lead to getting the incorrect answer.
+No need to give the reasoning process and do not use "The misconception is" to start your answers.
+There are some relative and possible misconceptions below to help you make the decision:
 
-- **Question**: {Question}
-- **Correct Answer**: {CorrectAnswer}
-- **Incorrect Answer**: {IncorrectAnswer}
-
-You will evaluate whether the provided Misconception truly captures the reason behind the Incorrect Answer.
-If the Misconception fully explains why the student might have chosen the Incorrect Answer, reply with "Yes."
-If the Misconception does not explain the student's reasoning or if another reason better explains the incorrect answer,
-reply with "No."
-
-**Misconception**: {MisconceptionName}
-
-Please focus on the following aspects in your analysis:
-1. Does the Incorrect Answer logically follow from the Misconception, given the context of the Question?
-2. Does the Misconception specifically relate to the key concepts in {ConstructName} ({SubjectName}) relevant to this question?
-3. Could this Misconception reasonably cause confusion that would lead to the Incorrect Answer?
-
-Be precise and concise in your response, responding only with "Yes" or "No" based on your analysis.
+{Retrieval}
 """
-    # id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
+    id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     texts = [
         preprocess_text(
             prompt.format(
@@ -62,7 +51,7 @@ Be precise and concise in your response, responding only with "Yes" or "No" base
                 Question=row["QuestionText"],
                 CorrectAnswer=row["CorrectAnswerText"],
                 IncorrectAnswer=row["InCorrectAnswerText"],
-                MisconceptionName=row["MisconceptionName"],
+                Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping),
             )
         )
         for row in df.iter_rows(named=True)
@@ -130,6 +119,11 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
         use_tqdm=True,
     )
 
+    del llm
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+
     # question,idxをkeyとしてmisconception_idを取得する
     candidates = defaultdict(list)
     for row in df.iter_rows(named=True):
@@ -137,20 +131,22 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
 
     preds = []
     for x in full_responses:
-        probs = []
+        pred = ""
         for output in x.outputs:
-            responce = output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "
-            prob = np.exp(next(iter(x.outputs[0].logprobs[0].values())).logprob)
-            if responce == "Yes":
-                pass
-            elif responce == "No":
-                prob = 1 - prob
-            else:
-                ValueError
-            probs.append(prob)  # 1である確率を返す
-        pred = np.mean(probs)
+            pred += output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "
         preds.append(pred)
-    df = df.with_columns(pl.Series(preds).alias("prob"))
+    df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
+        pl.concat_str(
+            [
+                pl.col("ConstructName"),
+                pl.col("SubjectName"),
+                pl.col("QuestionText"),
+                pl.col("InCorrectAnswerText"),
+                pl.col("LLMPredictMisconceptionName"),
+            ],
+            separator=" ",
+        ).alias("AllText")
+    )
     return df
 
 
@@ -197,7 +193,14 @@ class InferencePipeline:
         df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
         df = llm_inference(df, self.cfg)
         # second retreval
-        df = generate_candidates(df, misconception_mapping, self.cfg.retrieval_model.names, self.cfg.retrieve_num)
+        df = generate_candidates(
+            df,
+            misconception_mapping,
+            self.cfg.retrieval_model.names,
+            self.cfg.retrieve_num,
+            self.cfg.retrieval_model.weights,
+            local_files_only=True,
+        )
         self.make_submission(df)
 
 
