@@ -6,9 +6,11 @@ import hydra
 import numpy as np
 import torch
 import polars as pl
+import torch.nn.functional as F
 from lightning import seed_everything
 from omegaconf import DictConfig
 from numpy.typing import NDArray
+from transformers import AutoModel, AutoTokenizer, BitsAndBytesConfig
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
@@ -154,6 +156,55 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
     return df
 
 
+def add_eos(eos_token: str, input_examples: list[str]) -> list[str]:
+    input_examples = [input_example + eos_token for input_example in input_examples]
+    return input_examples
+
+
+def to_np(x: torch.tensor) -> np.ndarray:
+    return x.detach().cpu().numpy()
+
+
+def last_token_pool(last_hidden_states: torch.tensor, attention_mask: torch.tensor) -> torch.tensor:
+    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
+    if left_padding:
+        return last_hidden_states[:, -1]
+    else:
+        sequence_lengths = attention_mask.sum(dim=1) - 1
+        batch_size = last_hidden_states.shape[0]
+        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
+
+
+def get_detailed_instruct(task_description: str, query: str) -> str:
+    return f"<instruct>{task_description}\n<query>{query}"
+
+
+def get_detailed_example(task_description: str, query: str, response: str) -> str:
+    return f"<instruct>{task_description}\n<query>{query}\n<response>{response}"
+
+
+def get_new_queries(
+    queries: list[str], query_max_len: int, examples_prefix: str, tokenizer: AutoTokenizer
+) -> tuple[int, list[str]]:
+    inputs = tokenizer(
+        queries,
+        max_length=query_max_len
+        - len(tokenizer("<s>", add_special_tokens=False)["input_ids"])
+        - len(tokenizer("\n<response></s>", add_special_tokens=False)["input_ids"]),
+        return_token_type_ids=False,
+        truncation=True,
+        return_tensors=None,
+        add_special_tokens=False,
+    )
+    prefix_ids = tokenizer(examples_prefix, add_special_tokens=False)["input_ids"]
+    suffix_ids = tokenizer("\n<response>", add_special_tokens=False)["input_ids"]
+    new_max_length = (len(prefix_ids) + len(suffix_ids) + query_max_len + 8) // 8 * 8 + 8
+    new_queries = tokenizer.batch_decode(inputs["input_ids"])
+    for i in range(len(new_queries)):
+        new_queries[i] = examples_prefix + new_queries[i] + "\n<response>"
+    return new_max_length, new_queries
+
+
 def generate_candidates(
     df: pl.DataFrame,
     misconception_mapping: pl.DataFrame,
@@ -166,10 +217,67 @@ def generate_candidates(
     preds = []
     for retrieval_model_name in retrieval_model_names:
         print(str(retrieval_model_name))
-        model = SentenceTransformer(
-            str(retrieval_model_name), local_files_only=local_files_only, trust_remote_code=True
-        )
-        sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
+        if retrieval_model_name in ["nvidia/NV-Embed-v2"]:
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_use_double_quant=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+            model = AutoModel.from_pretrained(
+                retrieval_model_name, quantization_config=bnb_config, trust_remote_code=True
+            )
+
+            max_length = 2048  # 32768
+            # get the embeddings
+            instruct = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+            query_prefix = f"Instruct: {instruct} \nQuery: "
+            passage_prefix = ""
+            query_embeddings = model.encode(df["AllText"].to_list(), instruction=query_prefix, max_length=max_length)
+            passage_embeddings = model.encode(
+                df["MisconceptionName"].to_list(), instruction=passage_prefix, max_length=max_length
+            )
+
+            # normalize embeddings
+            query_embeddings = F.normalize(query_embeddings, p=2, dim=1)
+            passage_embeddings = F.normalize(passage_embeddings, p=2, dim=1)
+
+            similarity = to_np(query_embeddings @ passage_embeddings.T)
+            sorted_similarity = np.argsort(-similarity, axis=1)
+        elif retrieval_model_name in ["BAAI/bge-en-icl"]:
+            query_max_len, doc_max_len = 512, 512
+            tokenizer = AutoTokenizer.from_pretrained(retrieval_model_name)
+            model = AutoModel.from_pretrained(retrieval_model_name)
+            model.eval()
+            task = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+
+            examples_prefix = ""
+            queries = [get_detailed_instruct(task, query) for query in df["AllText"].to_list()]
+            documents = df["MisconceptionName"].to_list()
+            new_query_max_len, new_queries = get_new_queries(queries, query_max_len, examples_prefix, tokenizer)
+            query_batch_dict = tokenizer(
+                new_queries, max_length=new_query_max_len, padding=True, truncation=True, return_tensors="pt"
+            )
+            doc_batch_dict = tokenizer(
+                documents, max_length=doc_max_len, padding=True, truncation=True, return_tensors="pt"
+            )
+
+            with torch.no_grad():
+                query_outputs = model(**query_batch_dict)
+                query_embeddings = last_token_pool(query_outputs.last_hidden_state, query_batch_dict["attention_mask"])
+                doc_outputs = model(**doc_batch_dict)
+                doc_embeddings = last_token_pool(doc_outputs.last_hidden_state, doc_batch_dict["attention_mask"])
+
+            # normalize embeddings
+            query_embeddings = F.normalize(query_embeddings, p=2, dim=1)
+            doc_embeddings = F.normalize(doc_embeddings, p=2, dim=1)
+            similarity = to_np(query_embeddings @ passage_embeddings.T)
+            sorted_similarity = np.argsort(-similarity, axis=1)
+        else:
+            model = SentenceTransformer(
+                str(retrieval_model_name), local_files_only=local_files_only, trust_remote_code=True
+            )
+            sorted_similarity = sentence_emb_similarity(df, misconception_mapping, model)
         preds.append(sorted_similarity[:, : num_candidates + 10])  # アンサンブル用に大きめに計算
 
         del model

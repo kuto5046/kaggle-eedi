@@ -1,5 +1,5 @@
 # @package _global_
-run_name: fold0
+run_name: nvidia-NV-Embed-v2-fold${use_fold}
 use_fold: 0
 
 

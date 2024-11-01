@@ -27,6 +27,7 @@ LOGGER = logging.getLogger(__name__)
 
 # seed固定用
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 # ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
@@ -118,7 +119,7 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        self.model = CustomSentenceTransformer(self.cfg.retrieval_model.names[0], trust_remote_code=True)
+        self.model = CustomSentenceTransformer(self.cfg.retrieval_model.name, trust_remote_code=True)
 
         loss = MultipleNegativesRankingLoss(self.model)
         params = self.cfg.trainer
@@ -129,8 +130,9 @@ class TrainPipeline:
             num_train_epochs=params.epoch,
             per_device_train_batch_size=params.batch_size,
             gradient_accumulation_steps=params.gradient_accumulation_steps,
-            per_device_eval_batch_size=int(params.batch_size * 2),
-            eval_accumulation_steps=params.gradient_accumulation_steps // 2,
+            gradient_checkpointing=params.gradient_checkpointing,
+            per_device_eval_batch_size=params.batch_size,
+            eval_accumulation_steps=params.gradient_accumulation_steps,
             learning_rate=params.learning_rate,
             weight_decay=params.weight_decay,
             warmup_ratio=params.warmup_ratio,

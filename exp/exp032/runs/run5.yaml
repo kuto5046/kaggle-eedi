@@ -1,0 +1,13 @@
+# @package _global_
+run_name: dunzhang-stella_en_400M_v5_fold${use_fold}_batch64
+use_fold: 0
+
+
+retrieval_model:
+  name: dunzhang/stella_en_400M_v5
+
+trainer:
+  epoch: 2
+  batch_size: 32
+  gradient_accumulation_steps: 2  # 128 // batch_size
+  gradient_checkpointing: true

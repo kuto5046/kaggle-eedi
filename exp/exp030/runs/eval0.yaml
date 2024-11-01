@@ -1,0 +1,6 @@
+# @package _global_
+run_name: eval0
+use_fold: 0
+
+retrieval_model:
+  name: ${path.model_dir}/${exp_name}/fold${use_fold}_epoch3

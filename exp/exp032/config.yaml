@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp030
+exp_name: exp032
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "gte large embモデルの5foldで作成する"
 tags: []
@@ -80,6 +80,7 @@ trainer:
   epoch: 2
   batch_size: 16
   gradient_accumulation_steps: 32  # 128 // batch_size
+  gradient_checkpointing: true
   learning_rate: 2e-5
   weight_decay: 0.1
   warmup_ratio: 0.1
