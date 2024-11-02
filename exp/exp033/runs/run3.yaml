@@ -1,7 +1,0 @@
-# @package _global_
-run_name: dunzhang-stella_en_400M_v5_fold${use_fold}
-use_fold: 0
-
-
-retrieval_model:
-  name: BAAI/bge-en-icl

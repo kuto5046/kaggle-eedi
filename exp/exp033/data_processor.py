@@ -244,35 +244,6 @@ def generate_candidates(
 
             similarity = to_np(query_embeddings @ passage_embeddings.T)
             sorted_similarity = np.argsort(-similarity, axis=1)
-        elif retrieval_model_name in ["BAAI/bge-en-icl"]:
-            query_max_len, doc_max_len = 512, 512
-            tokenizer = AutoTokenizer.from_pretrained(retrieval_model_name)
-            model = AutoModel.from_pretrained(retrieval_model_name)
-            model.eval()
-            task = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
-
-            examples_prefix = ""
-            queries = [get_detailed_instruct(task, query) for query in df["AllText"].to_list()]
-            documents = df["MisconceptionName"].to_list()
-            new_query_max_len, new_queries = get_new_queries(queries, query_max_len, examples_prefix, tokenizer)
-            query_batch_dict = tokenizer(
-                new_queries, max_length=new_query_max_len, padding=True, truncation=True, return_tensors="pt"
-            )
-            doc_batch_dict = tokenizer(
-                documents, max_length=doc_max_len, padding=True, truncation=True, return_tensors="pt"
-            )
-
-            with torch.no_grad():
-                query_outputs = model(**query_batch_dict)
-                query_embeddings = last_token_pool(query_outputs.last_hidden_state, query_batch_dict["attention_mask"])
-                doc_outputs = model(**doc_batch_dict)
-                doc_embeddings = last_token_pool(doc_outputs.last_hidden_state, doc_batch_dict["attention_mask"])
-
-            # normalize embeddings
-            query_embeddings = F.normalize(query_embeddings, p=2, dim=1)
-            doc_embeddings = F.normalize(doc_embeddings, p=2, dim=1)
-            similarity = to_np(query_embeddings @ passage_embeddings.T)
-            sorted_similarity = np.argsort(-similarity, axis=1)
         else:
             model = SentenceTransformer(
                 str(retrieval_model_name), local_files_only=local_files_only, trust_remote_code=True
