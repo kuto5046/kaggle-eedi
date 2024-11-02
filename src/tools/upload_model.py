@@ -68,6 +68,7 @@ def copy_files_with_exts(source_dir: Path, dest_dir: Path, exts: list) -> None:
         "model.safetensors",
         "vocab.txt",
         ".json",
+        ".py",
         # ".hydra/*.yaml",
         # "preds.npy",
     ],

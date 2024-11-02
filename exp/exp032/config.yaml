@@ -3,7 +3,7 @@
 ###############
 exp_name: exp032
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "gte large embモデルの5foldで作成する"
+notes: "leaderboard上位のemb modelを試す"
 tags: []
 
 defaults:
