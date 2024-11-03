@@ -110,7 +110,7 @@ class TripletSimCSEModel(nn.Module):
 class TripletTrainer(Trainer):
     def compute_loss(
         self, model: MODEL, inputs: dict[str, torch.tensor], return_outputs: bool = False
-    ) -> torch.tensor | ModelOutput:
+    ) -> Union[torch.tensor, ModelOutput]:
         # Only pass anchor, positive, and negative to the model
         outputs = model(inputs["anchor"], inputs["positive"], inputs["negative"])
         loss = outputs["loss"]
