@@ -9,11 +9,11 @@ import torch
 import wandb
 import polars as pl
 from peft import PeftModel, LoraConfig, get_peft_model
+from tqdm import tqdm
 from torch import nn
 from datasets import Dataset as HFDataset
 from lightning import seed_everything
 from omegaconf import DictConfig
-from numpy.typing import NDArray
 from transformers import (
     Trainer,
     AutoModel,
@@ -29,6 +29,8 @@ from sentence_transformers import SentenceTransformer
 from transformers.file_utils import ModelOutput
 from sklearn.metrics.pairwise import cosine_similarity
 
+from .data_processor import to_np, calc_mapk, calc_recall
+
 LOGGER = logging.getLogger(__name__)
 
 TOKENIZER = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
@@ -37,20 +39,6 @@ MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
 # seed固定用
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
-
-def to_np(tensor: torch.tensor) -> np.ndarray:
-    return tensor.detach().cpu().numpy()
-
-
-# ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
-def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> float:
-    map_sum = 0
-    for _x, y in zip(preds, labels):
-        x = [int(i) for i in _x.split(" ")]
-        z = [1 / i if y == j else 0 for i, j in zip(range(1, k + 1), x)]
-        map_sum += np.sum(z)
-    return map_sum / len(preds)
 
 
 class TripletCollator:
@@ -118,20 +106,28 @@ class TripletTrainer(Trainer):
 def encode(
     model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 1024, batch_size: int = 32
 ) -> np.ndarray:
-    model.eval()
     all_embeddings = []
-    for i in range(0, len(texts), batch_size):
+    for i in tqdm(range(0, len(texts), batch_size), desc="Batch", total=len(texts) // batch_size):
         batch_texts = texts[i : i + batch_size]
-        tokenized_texts = tokenizer(
-            batch_texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt"
-        ).to(model.device)
-        with torch.inference_mode():
-            with torch.amp.autocast("cuda"):
-                outputs = model(**tokenized_texts)
-                embeddings = outputs.last_hidden_state[:, 0, :]
-                norm_embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        features = tokenizer(batch_texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt").to(
+            model.device
+        )
+        with torch.no_grad():
+            outputs = model(**features)
+            embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
+            norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
         all_embeddings.append(to_np(norm_embeddings))
     return np.vstack(all_embeddings)
+
+
+def last_token_pool(last_hidden_states: torch.tensor, attention_mask: torch.tensor) -> torch.tensor:
+    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
+    if left_padding:
+        return last_hidden_states[:, -1]
+    else:
+        sequence_lengths = attention_mask.sum(dim=1) - 1
+        batch_size = last_hidden_states.shape[0]
+        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
 
 
 class TrainPipeline:
@@ -216,10 +212,11 @@ class TrainPipeline:
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
-        model = AutoModel.from_pretrained(
+        self.base_model = AutoModel.from_pretrained(
             self.cfg.retrieval_model.name,
             quantization_config=bnb_config,
-            # use_cache=False,  # nvidiaモデルでエラーが出るのでコメントアウト gradient_checkpointingを使う場合warningが出るが無視
+            use_cache=False,
+            local_files_only=False,
             trust_remote_code=True,
         )
         # LoRAアダプタを追加
@@ -237,7 +234,7 @@ class TrainPipeline:
             ],
             task_type="DEFAULT",
         )
-        lora_model = get_peft_model(model, lora_config)
+        lora_model = get_peft_model(self.base_model, lora_config)
         lora_model.print_trainable_parameters()
         self.model = TripletSimCSEModel(lora_model)
 
@@ -291,21 +288,21 @@ class TrainPipeline:
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
-        self.lora_model = self.model.model
-        self.lora_model.save_pretrained(str(self.output_dir))
+        lora_model = self.model.model
+        lora_model.save_pretrained(str(self.output_dir))
 
     def evaluate(self) -> None:
+        model = PeftModel.from_pretrained(self.base_model, str(self.output_dir))
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-
         query_embs = encode(
-            self.lora_model,
+            model,
             self.tokenizer,
             oof["AllText"].to_list(),
             max_length=512,
             batch_size=self.cfg.trainer.batch_size,
         )
         passage_embs = encode(
-            self.lora_model,
+            model,
             self.tokenizer,
             self.misconception_mapping["MisconceptionName"].to_list(),
             max_length=512,
@@ -314,15 +311,19 @@ class TrainPipeline:
         similarity = cosine_similarity(query_embs, passage_embs)
         sorted_similarity = np.argsort(-similarity, axis=1)
 
-        oof = (
-            oof.drop("AllText")
-            .with_columns(pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("pred"))
-            .with_columns(pl.col("pred").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String))
+        oof = oof.with_columns(
+            pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
+        )
+        recall = calc_recall(oof)
+        mapk = calc_mapk(oof)
+        LOGGER.info(f"Recall: {recall:.5f}")
+        LOGGER.info(f"CV: {mapk:.5f}")
+        wandb.log({"Recall": recall})  # type: ignore
+        wandb.log({"CV": mapk})  # type: ignore
+        oof = oof.drop("AllText").with_columns(
+            pl.col("PredictMisconceptionId").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
         )
         oof.write_csv(self.output_dir / "oof.csv")
-        score = mapk(preds=oof["pred"].to_numpy(), labels=oof["MisconceptionId"].to_numpy())
-        LOGGER.info(f"CV: {score}")
-        wandb.log({"CV": score})  # type: ignore
 
     def run(self) -> None:
         self.setup_logger()
