@@ -1,3 +1,4 @@
+import gc
 import os
 import logging
 from typing import Union
@@ -223,10 +224,7 @@ class TrainPipeline:
         )
         # LoRAアダプタを追加
         lora_config = LoraConfig(
-            # **self.cfg.retrieval_model.lora,
-            r=8,
-            lora_alpha=16,
-            lora_dropout=0.05,
+            **self.cfg.retrieval_model.lora,
             bias="none",
             target_modules=[
                 "q_proj",
@@ -295,6 +293,10 @@ class TrainPipeline:
         #     shutil.rmtree(ckpt_dir)
         lora_model = self.model.model
         lora_model.save_pretrained(str(self.output_dir))
+
+        del self.model, trainer, lora_model
+        gc.collect()
+        torch.cuda.empty_cache()
 
     def evaluate(self) -> None:
         model = PeftModel.from_pretrained(self.base_model, str(self.output_dir))
