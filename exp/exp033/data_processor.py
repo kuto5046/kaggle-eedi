@@ -1,7 +1,7 @@
 import gc
 import logging
 from pathlib import Path
-
+import os
 import hydra
 import numpy as np
 import torch
@@ -14,6 +14,9 @@ from transformers import AutoModel, AutoTokenizer, BitsAndBytesConfig
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics.pairwise import cosine_similarity
+
+os.environ["PYTORCH_CUDA_ALLOC_CONF"]="expandable_segments:True"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -228,14 +231,19 @@ def generate_candidates(
                 retrieval_model_name, quantization_config=bnb_config, trust_remote_code=True
             )
 
-            max_length = 2048  # 32768
+            max_length = 1024  # 32768
+            batch_size = 64
+            num_workers = 12
             # get the embeddings
             instruct = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
             query_prefix = f"Instruct: {instruct} \nQuery: "
             passage_prefix = ""
-            query_embeddings = model.encode(df["AllText"].to_list(), instruction=query_prefix, max_length=max_length)
-            passage_embeddings = model.encode(
-                df["MisconceptionName"].to_list(), instruction=passage_prefix, max_length=max_length
+
+            query_embeddings = model._do_encode(
+                df["AllText"].to_list(), instruction=query_prefix, max_length=max_length, num_workers=num_workers, batch_size=batch_size
+            )
+            passage_embeddings = model._do_encode(
+                misconception_mapping["MisconceptionName"].to_list(), instruction=passage_prefix, max_length=max_length, num_workers=num_workers, batch_size=batch_size
             )
 
             # normalize embeddings
