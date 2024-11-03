@@ -1,12 +1,12 @@
 # @package _global_
-run_name: nvidia-NV-Embed-v2-top${max_candidates}
+run_name: nvidia-NV-Embed-v2-top${max_candidates}_rank${retrieval_model.lora.r}
 notes: nvidia-emb-v2を100個のcandidateで試す
 use_fold: 0
 
 retrieval_model:
   name: nvidia/NV-Embed-v2
   lora:
-    r: 64
+    r: 8
     lora_alpha: 16
     lora_dropout: 0.05
 
