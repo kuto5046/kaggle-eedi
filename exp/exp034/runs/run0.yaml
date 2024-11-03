@@ -1,0 +1,16 @@
+# @package _global_
+run_name: nvidia-NV-Embed-v2-fold${use_fold}
+use_fold: 0
+
+
+retrieval_model:
+  name: nvidia/NV-Embed-v2
+
+vllm:
+  model:
+    model: ${retrieval_model.name}
+
+trainer:
+  epoch: 2
+  batch_size: 1
+  gradient_accumulation_steps: 32
