@@ -6,11 +6,11 @@ use_fold: 0
 retrieval_model:
   name: nvidia/NV-Embed-v2
   lora:
-    r: 8
+    r: 64
     lora_alpha: 16
     lora_dropout: 0.05
 
-max_candidates: 100
+max_candidates: 30
 
 vllm:
   model:
@@ -18,6 +18,6 @@ vllm:
 
 trainer:
   epoch: 1
-  batch_size: 4
-  gradient_accumulation_steps: 16
+  batch_size: 8
+  gradient_accumulation_steps: 8
   gradient_checkpointing: false  # nvidia-emb-v2は対応していないらしい
