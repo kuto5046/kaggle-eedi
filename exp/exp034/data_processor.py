@@ -31,15 +31,6 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
             value_name="AnswerText",
         )
         .with_columns(
-            pl.concat_str(
-                [
-                    pl.col("ConstructName"),
-                    pl.col("SubjectName"),
-                    pl.col("QuestionText"),
-                    pl.col("AnswerText"),
-                ],
-                separator=" ",
-            ).alias("AllText"),
             pl.col("AnswerType").str.extract(r"Answer([A-D])Text$").alias("AnswerAlphabet"),
         )
         .with_columns(
@@ -58,6 +49,23 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
         .rename({"AnswerAlphabet": "InCorrectAnswerAlphabet", "AnswerText": "InCorrectAnswerText"})
         .filter(pl.col("InCorrectAnswerAlphabet") != pl.col("CorrectAnswerAlphabet"))
         .drop(["AnswerType", "CorrectAnswer"])
+    )
+    long_df = long_df.with_columns(
+        pl.concat_str(
+            [
+                pl.lit("\n## Construct"),
+                pl.col("ConstructName"),
+                pl.lit("\n## Subject"),
+                pl.col("SubjectName"),
+                pl.lit("\n## Question"),
+                pl.col("QuestionText"),
+                pl.lit("\n## CorrectAnswer"),
+                pl.col("CorrectAnswerText"),
+                pl.lit("\n## InCorrectAnswer"),
+                pl.col("InCorrectAnswerText"),
+            ],
+            separator="",
+        ).alias("AllText")
     )
     return long_df
 
@@ -238,18 +246,18 @@ def generate_candidates(
             # get the embeddings
             instruct = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
             query_prefix = f"Instruct: {instruct} \nQuery: "
-            passage_prefix = ""
+            df = df.with_columns([(pl.lit(query_prefix) + pl.col("AllText")).alias("AllText")])
 
             query_embeddings = model._do_encode(
                 df["AllText"].to_list(),
-                instruction=query_prefix,
+                instruction="",
                 max_length=max_length,
                 num_workers=num_workers,
                 batch_size=batch_size,
             )
             passage_embeddings = model._do_encode(
                 misconception_mapping["MisconceptionName"].to_list(),
-                instruction=passage_prefix,
+                instruction="",
                 max_length=max_length,
                 num_workers=num_workers,
                 batch_size=batch_size,
@@ -297,7 +305,7 @@ def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = 
                 else:
                     scores[pred_misconception_id] = w / (k + 1)
         # Sort dictionary by item weights
-        result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())[:top_k]
+        result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())  # [:top_k]
         blend_results.append(result)
     return np.array(blend_results)
 

@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp033
+exp_name: exp034
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "leaderboard上位のemb modelを試す"
 tags: []
@@ -44,16 +44,7 @@ retrieval_model:
     r: 8
     lora_alpha: 16
     lora_dropout: 0.05
-    bias: "none"
-    target_modules:
-      - q_proj
-      - k_proj
-      - v_proj
-      - o_proj
-      - gate_proj
-      - up_proj
-      - down_proj
-    task_type: DEFAULT
+
 
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ

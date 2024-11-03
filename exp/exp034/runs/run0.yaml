@@ -1,16 +1,23 @@
 # @package _global_
-run_name: nvidia-NV-Embed-v2-fold${use_fold}
+run_name: nvidia-NV-Embed-v2-top${max_candidates}
+notes: nvidia-emb-v2を100個のcandidateで試す
 use_fold: 0
-
 
 retrieval_model:
   name: nvidia/NV-Embed-v2
+  lora:
+    r: 8
+    lora_alpha: 16
+    lora_dropout: 0.05
+
+max_candidates: 100
 
 vllm:
   model:
     model: ${retrieval_model.name}
 
 trainer:
-  epoch: 2
-  batch_size: 1
-  gradient_accumulation_steps: 32
+  epoch: 1
+  batch_size: 4
+  gradient_accumulation_steps: 16
+  gradient_checkpointing: false  # nvidia-emb-v2は対応していないらしい

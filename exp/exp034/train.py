@@ -65,13 +65,13 @@ class TripletCollator:
 
         # Tokenize each of the triplet components separately
         queries_encoded = self.tokenizer(
-            queries, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
+            queries, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt"
         )
         positives_encoded = self.tokenizer(
-            positives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
+            positives, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt"
         )
         negatives_encoded = self.tokenizer(
-            negatives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
+            negatives, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt"
         )
 
         return {"anchor": queries_encoded, "positive": positives_encoded, "negative": negatives_encoded}
@@ -88,8 +88,7 @@ class TripletSimCSEModel(nn.Module):
         return hidden_state[torch.arange(hidden_state.size(0)), mask.sum(1) - 1]
 
     def encode(self, features: dict[str, torch.tensor]) -> torch.tensor:
-        outputs = self.model(**features)
-        return self.sentence_embedding(outputs.last_hidden_state, features["attention_mask"])
+        return self.model(**features)["sentence_embeddings"]  # nvidiaモデルの出力は辞書型
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: dict) -> None:
         self.model.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
@@ -218,14 +217,14 @@ class TrainPipeline:
             bnb_4bit_compute_dtype=torch.bfloat16,
         )
         model = AutoModel.from_pretrained(
-            self.cfg.retrieval_model.name, quantization_config=bnb_config, use_cache=False
+            self.cfg.retrieval_model.name,
+            quantization_config=bnb_config,
+            # use_cache=False,  # nvidiaモデルでエラーが出るのでコメントアウト gradient_checkpointingを使う場合warningが出るが無視
+            trust_remote_code=True,
         )
         # LoRAアダプタを追加
         lora_config = LoraConfig(
-            # **self.cfg.retrieval_model.lora,
-            r=8,
-            lora_alpha=16,
-            lora_dropout=0.05,
+            **self.cfg.retrieval_model.lora,
             bias="none",
             target_modules=[
                 "q_proj",
