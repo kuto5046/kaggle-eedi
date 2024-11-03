@@ -215,7 +215,7 @@ class TrainPipeline:
         self.base_model = AutoModel.from_pretrained(
             self.cfg.retrieval_model.name,
             quantization_config=bnb_config,
-            use_cache=False,
+            # use_cache=False,
             local_files_only=False,
             trust_remote_code=True,
         )
@@ -236,7 +236,7 @@ class TrainPipeline:
         )
         lora_model = get_peft_model(self.base_model, lora_config)
         lora_model.print_trainable_parameters()
-        self.model = TripletSimCSEModel(lora_model)
+        model = TripletSimCSEModel(lora_model)
 
         data_collator = TripletCollator(self.tokenizer)
 
@@ -276,7 +276,7 @@ class TrainPipeline:
         )
 
         trainer = TripletTrainer(
-            model=self.model,
+            model=model,
             args=args,
             train_dataset=self.train_dataset,
             eval_dataset=self.valid_dataset,
@@ -288,8 +288,8 @@ class TrainPipeline:
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
-        lora_model = self.model.model
-        lora_model.save_pretrained(str(self.output_dir))
+        # LoRA modelを保存
+        model.model.save_pretrained(str(self.output_dir))
 
     def evaluate(self) -> None:
         model = PeftModel.from_pretrained(self.base_model, str(self.output_dir))
