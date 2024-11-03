@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp032
+exp_name: exp033
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "leaderboard上位のemb modelを試す"
 tags: []
@@ -40,7 +40,20 @@ retrieval_model:
     - ${retrieval_model.name}
   weights:
     - 1.0
-
+  lora:
+    r: 8
+    lora_alpha: 16
+    lora_dropout: 0.05
+    bias: "none"
+    target_modules:
+      - q_proj
+      - k_proj
+      - v_proj
+      - o_proj
+      - gate_proj
+      - up_proj
+      - down_proj
+    task_type: DEFAULT
 
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
@@ -86,7 +99,7 @@ trainer:
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
   lr_scheduler_type: cosine_with_restarts
-  save_strategy: steps
+  save_strategy: "no"
   save_steps: 0.2  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
   logging_strategy: steps
