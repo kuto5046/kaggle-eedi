@@ -1,35 +1,31 @@
+import gc
 import os
 import logging
 from typing import Union
 from pathlib import Path
 
 import hydra
-import numpy as np
 import torch
-import wandb
 import polars as pl
-from peft import PeftModel, LoraConfig, get_peft_model
-from tqdm import tqdm
+from peft import PeftModel
 from torch import nn
 from datasets import Dataset as HFDataset
 from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import (
     Trainer,
-    AutoModel,
-    AutoTokenizer,
     PreTrainedModel,
     TrainingArguments,
-    BitsAndBytesConfig,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
     set_seed,
 )
 from sentence_transformers import SentenceTransformer
 from transformers.file_utils import ModelOutput
-from sklearn.metrics.pairwise import cosine_similarity
 
-from .data_processor import to_np, calc_mapk, calc_recall
+import wandb
+
+from .data_processor import calc_mapk, calc_recall, setup_qlora_model, sentence_emb_similarity_by_peft
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +38,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 128) -> None:
+    def __init__(self, tokenizer: TOKENIZER, max_length: int = 1024) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
 
@@ -52,31 +48,37 @@ class TripletCollator:
         negatives = [f["PredictMisconceptionName"] for f in features]
 
         # Tokenize each of the triplet components separately
+        # nvidiaモデルだと形状が揃わずエラーが出てしまう。
         queries_encoded = self.tokenizer(
-            queries, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt"
+            queries, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
         positives_encoded = self.tokenizer(
-            positives, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt"
+            positives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
         negatives_encoded = self.tokenizer(
-            negatives, padding="max_length", truncation=True, max_length=self.max_length, return_tensors="pt"
+            negatives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
 
         return {"anchor": queries_encoded, "positive": positives_encoded, "negative": negatives_encoded}
 
 
 class TripletSimCSEModel(nn.Module):
-    def __init__(self, model: PeftModel, temperature: float = 0.02) -> None:
+    def __init__(self, model: PeftModel, cfg: DictConfig) -> None:
         super().__init__()
         self.model = model
         self.triplet_loss = nn.TripletMarginLoss()
-        self.temperature = temperature
+        self.retrieval_model_name = cfg.retrieval_model.name
 
     def sentence_embedding(self, hidden_state: torch.tensor, mask: torch.tensor) -> torch.tensor:
         return hidden_state[torch.arange(hidden_state.size(0)), mask.sum(1) - 1]
 
     def encode(self, features: dict[str, torch.tensor]) -> torch.tensor:
-        return self.model(**features)["sentence_embeddings"]  # nvidiaモデルの出力は辞書型
+        if self.retrieval_model_name == "nvidia/NV-Embed-v2":
+            outputs = self.model(**features)
+            return self.sentence_embedding(outputs["sentence_embeddings"], features["attention_mask"])
+        else:
+            outputs = self.model(**features)
+            return self.sentence_embedding(outputs.last_hidden_state, features["attention_mask"])
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: dict) -> None:
         self.model.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
@@ -101,33 +103,6 @@ class TripletTrainer(Trainer):
         outputs = model(inputs["anchor"], inputs["positive"], inputs["negative"])
         loss = outputs["loss"]
         return (loss, outputs) if return_outputs else loss
-
-
-def encode(
-    model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 1024, batch_size: int = 32
-) -> np.ndarray:
-    all_embeddings = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="Batch", total=len(texts) // batch_size):
-        batch_texts = texts[i : i + batch_size]
-        features = tokenizer(batch_texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt").to(
-            model.device
-        )
-        with torch.no_grad():
-            outputs = model(**features)
-            embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
-            norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
-        all_embeddings.append(to_np(norm_embeddings))
-    return np.vstack(all_embeddings)
-
-
-def last_token_pool(last_hidden_states: torch.tensor, attention_mask: torch.tensor) -> torch.tensor:
-    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
-    if left_padding:
-        return last_hidden_states[:, -1]
-    else:
-        sequence_lengths = attention_mask.sum(dim=1) - 1
-        batch_size = last_hidden_states.shape[0]
-        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
 
 
 class TrainPipeline:
@@ -170,8 +145,6 @@ class TrainPipeline:
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.retrieval_model.name)
-
         self.train_dataset = (
             HFDataset.from_polars(self.train)
             .filter(
@@ -205,40 +178,10 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        # 量子化したモデルを読み込む
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-        self.base_model = AutoModel.from_pretrained(
-            self.cfg.retrieval_model.name,
-            quantization_config=bnb_config,
-            # use_cache=False,
-            local_files_only=False,
-            trust_remote_code=True,
-        )
-        # LoRAアダプタを追加
-        lora_config = LoraConfig(
-            **self.cfg.retrieval_model.lora,
-            bias="none",
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-            task_type="DEFAULT",
-        )
-        lora_model = get_peft_model(self.base_model, lora_config)
-        lora_model.print_trainable_parameters()
-        model = TripletSimCSEModel(lora_model)
+        lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
+        model = TripletSimCSEModel(lora_model, self.cfg)
 
-        data_collator = TripletCollator(self.tokenizer)
+        data_collator = TripletCollator(tokenizer, self.cfg.retrieval_model.max_length)
 
         params = self.cfg.trainer
         args = TrainingArguments(
@@ -280,7 +223,7 @@ class TrainPipeline:
             args=args,
             train_dataset=self.train_dataset,
             eval_dataset=self.valid_dataset,
-            tokenizer=self.tokenizer,
+            tokenizer=tokenizer,
             data_collator=data_collator,
         )
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
@@ -288,29 +231,21 @@ class TrainPipeline:
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
-        # LoRA modelを保存
+        # LoRAモデルを保存
         model.model.save_pretrained(str(self.output_dir))
 
-    def evaluate(self) -> None:
-        model = PeftModel.from_pretrained(self.base_model, str(self.output_dir))
-        oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-        query_embs = encode(
-            model,
-            self.tokenizer,
-            oof["AllText"].to_list(),
-            max_length=512,
-            batch_size=self.cfg.trainer.batch_size,
-        )
-        passage_embs = encode(
-            model,
-            self.tokenizer,
-            self.misconception_mapping["MisconceptionName"].to_list(),
-            max_length=512,
-            batch_size=self.cfg.trainer.batch_size,
-        )
-        similarity = cosine_similarity(query_embs, passage_embs)
-        sorted_similarity = np.argsort(-similarity, axis=1)
+        del model, trainer, lora_model, tokenizer
+        gc.collect()
+        torch.cuda.empty_cache()
 
+    def evaluate(self) -> None:
+        oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
+        sorted_similarity = sentence_emb_similarity_by_peft(
+            oof,
+            self.misconception_mapping,
+            self.cfg,
+            pretrained_lora_path=self.output_dir,
+        )
         oof = oof.with_columns(
             pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
         )
