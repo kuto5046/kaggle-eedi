@@ -5,11 +5,9 @@ from typing import Union
 from pathlib import Path
 
 import hydra
-import numpy as np
 import torch
 import polars as pl
 from peft import PeftModel, LoraConfig, get_peft_model
-from tqdm import tqdm
 from torch import nn
 from datasets import Dataset as HFDataset
 from lightning import seed_everything
@@ -27,11 +25,10 @@ from transformers import (
 )
 from sentence_transformers import SentenceTransformer
 from transformers.file_utils import ModelOutput
-from sklearn.metrics.pairwise import cosine_similarity
 
 import wandb
 
-from .data_processor import to_np, calc_mapk, calc_recall
+from .data_processor import calc_mapk, calc_recall, sentence_emb_similarity_by_peft
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,7 +41,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 128) -> None:
+    def __init__(self, tokenizer: TOKENIZER, max_length: int = 1024) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
 
@@ -104,33 +101,6 @@ class TripletTrainer(Trainer):
         outputs = model(inputs["anchor"], inputs["positive"], inputs["negative"])
         loss = outputs["loss"]
         return (loss, outputs) if return_outputs else loss
-
-
-def encode(
-    model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 1024, batch_size: int = 32
-) -> np.ndarray:
-    all_embeddings = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="Batch", total=len(texts) // batch_size):
-        batch_texts = texts[i : i + batch_size]
-        features = tokenizer(batch_texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt").to(
-            model.device
-        )
-        with torch.no_grad():
-            outputs = model(**features)
-            embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
-            norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
-        all_embeddings.append(to_np(norm_embeddings))
-    return np.vstack(all_embeddings)
-
-
-def last_token_pool(last_hidden_states: torch.tensor, attention_mask: torch.tensor) -> torch.tensor:
-    left_padding = attention_mask[:, -1].sum() == attention_mask.shape[0]
-    if left_padding:
-        return last_hidden_states[:, -1]
-    else:
-        sequence_lengths = attention_mask.sum(dim=1) - 1
-        batch_size = last_hidden_states.shape[0]
-        return last_hidden_states[torch.arange(batch_size, device=last_hidden_states.device), sequence_lengths]
 
 
 class TrainPipeline:
@@ -203,7 +173,7 @@ class TrainPipeline:
             name=f"{self.cfg.exp_name}_{self.cfg.run_name}",
             group=self.cfg.exp_name,
             tags=self.cfg.tags,
-            mode="disabled" if self.cfg.debug else "online",
+            mode="disabled",  # if self.cfg.debug else "online",
             notes=self.cfg.notes,
         )
 
@@ -241,7 +211,7 @@ class TrainPipeline:
         lora_model.print_trainable_parameters()
         self.model = TripletSimCSEModel(lora_model)
 
-        data_collator = TripletCollator(self.tokenizer)
+        data_collator = TripletCollator(self.tokenizer, self.cfg.retrieval_model.max_length)
 
         params = self.cfg.trainer
         args = TrainingArguments(
@@ -287,37 +257,22 @@ class TrainPipeline:
             data_collator=data_collator,
         )
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
-        trainer.train()
+        # trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
-        lora_model = self.model.model
-        lora_model.save_pretrained(str(self.output_dir))
+        # lora_model = self.model.model
+        # lora_model.save_pretrained(str(self.output_dir))
 
         del self.model, trainer, lora_model
         gc.collect()
         torch.cuda.empty_cache()
 
     def evaluate(self) -> None:
-        model = PeftModel.from_pretrained(self.base_model, str(self.output_dir))
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-        query_embs = encode(
-            model,
-            self.tokenizer,
-            oof["AllText"].to_list(),
-            max_length=512,
-            batch_size=self.cfg.trainer.batch_size,
+        sorted_similarity = sentence_emb_similarity_by_peft(
+            self.cfg.retrieval_model.name, self.output_dir, oof, self.misconception_mapping
         )
-        passage_embs = encode(
-            model,
-            self.tokenizer,
-            self.misconception_mapping["MisconceptionName"].to_list(),
-            max_length=512,
-            batch_size=self.cfg.trainer.batch_size,
-        )
-        similarity = cosine_similarity(query_embs, passage_embs)
-        sorted_similarity = np.argsort(-similarity, axis=1)
-
         oof = oof.with_columns(
             pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
         )

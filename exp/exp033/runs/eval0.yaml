@@ -1,0 +1,13 @@
+# @package _global_
+run_name: eval0
+use_fold: 0
+
+
+retrieval_model:
+  name: ${path.model_dir}/${exp_name}/${run_name}
+
+trainer:
+  epoch: 2
+  batch_size: 16
+  gradient_accumulation_steps: 4
+  gradient_checkpointing: true
