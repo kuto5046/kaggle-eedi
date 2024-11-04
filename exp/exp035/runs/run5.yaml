@@ -1,0 +1,18 @@
+# @package _global_
+run_name: dunzhang-stella_en_1.5B_v5_${max_candidates}_rank${retrieval_model.lora.r}_batch${trainer.batch_size}
+use_fold: 0
+
+retrieval_model:
+  name: dunzhang/stella_en_1.5B_v5
+  lora:
+    r: 8
+  max_length: 512
+
+trainer:
+  epoch: 1
+  batch_size: 32
+  gradient_accumulation_steps: 8
+  gradient_checkpointing: true
+
+
+max_candidates: 25

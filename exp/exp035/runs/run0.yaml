@@ -1,0 +1,13 @@
+# @package _global_
+run_name: dunzhang-stella_en_1.5B_v5_fold${use_fold}
+use_fold: 0
+
+
+retrieval_model:
+  name: dunzhang/stella_en_1.5B_v5
+
+trainer:
+  epoch: 2
+  batch_size: 16
+  gradient_accumulation_steps: 4
+  gradient_checkpointing: true
