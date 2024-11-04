@@ -39,7 +39,7 @@ retrieval_model:
     r: 8
     lora_alpha: 16
     lora_dropout: 0.05
-  max_length: 1024
+  max_length: 512
 
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
