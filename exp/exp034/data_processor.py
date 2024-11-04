@@ -48,7 +48,9 @@ def encode(
         )
         with torch.no_grad():
             outputs = model(**features)
-            embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
+            # TODO: モデルで分岐させる
+            # embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
+            embeddings = last_token_pool(outputs["sentence_embeddings"], features["attention_mask"])
             norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
         all_embeddings.append(to_np(norm_embeddings))
     return np.vstack(all_embeddings)
