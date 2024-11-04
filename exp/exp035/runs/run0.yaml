@@ -1,13 +1,16 @@
 # @package _global_
-run_name: dunzhang-stella_en_1.5B_v5_fold${use_fold}
+run_name: run0_dunzhang-stella_en_1.5B_v5_top${max_candidates}_rank${retrieval_model.lora.r}_batch${trainer.batch_size}
 use_fold: 0
-
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
+  lora:
+    r: 8
+
+max_candidates: 100
 
 trainer:
-  epoch: 2
-  batch_size: 16
-  gradient_accumulation_steps: 4
+  epoch: 1
+  batch_size: 64
+  gradient_accumulation_steps: 1
   gradient_checkpointing: true
