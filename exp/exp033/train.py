@@ -7,18 +7,15 @@ from pathlib import Path
 import hydra
 import torch
 import polars as pl
-from peft import PeftModel, LoraConfig, get_peft_model
+from peft import PeftModel
 from torch import nn
 from datasets import Dataset as HFDataset
 from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import (
     Trainer,
-    AutoModel,
-    AutoTokenizer,
     PreTrainedModel,
     TrainingArguments,
-    BitsAndBytesConfig,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
     set_seed,
@@ -28,7 +25,7 @@ from transformers.file_utils import ModelOutput
 
 import wandb
 
-from .data_processor import calc_mapk, calc_recall, sentence_emb_similarity_by_peft
+from .data_processor import calc_mapk, calc_recall, setup_qlora_model, sentence_emb_similarity_by_peft
 
 LOGGER = logging.getLogger(__name__)
 
@@ -143,8 +140,6 @@ class TrainPipeline:
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.cfg.retrieval_model.name)
-
         self.train_dataset = (
             HFDataset.from_polars(self.train)
             .filter(
@@ -178,40 +173,10 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        # 量子化したモデルを読み込む
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-        self.base_model = AutoModel.from_pretrained(
-            self.cfg.retrieval_model.name,
-            quantization_config=bnb_config,
-            use_cache=False,
-            local_files_only=False,
-            trust_remote_code=True,
-        )
-        # LoRAアダプタを追加
-        lora_config = LoraConfig(
-            **self.cfg.retrieval_model.lora,
-            bias="none",
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-            task_type="DEFAULT",
-        )
-        lora_model = get_peft_model(self.base_model, lora_config)
-        lora_model.print_trainable_parameters()
-        self.model = TripletSimCSEModel(lora_model)
+        lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
+        model = TripletSimCSEModel(lora_model)
 
-        data_collator = TripletCollator(self.tokenizer, self.cfg.retrieval_model.max_length)
+        data_collator = TripletCollator(tokenizer, self.cfg.retrieval_model.max_length)
 
         params = self.cfg.trainer
         args = TrainingArguments(
@@ -249,11 +214,11 @@ class TrainPipeline:
         )
 
         trainer = TripletTrainer(
-            model=self.model,
+            model=model,
             args=args,
             train_dataset=self.train_dataset,
             eval_dataset=self.valid_dataset,
-            tokenizer=self.tokenizer,
+            tokenizer=tokenizer,
             data_collator=data_collator,
         )
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
@@ -261,17 +226,20 @@ class TrainPipeline:
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
-        # lora_model = self.model.model
-        # lora_model.save_pretrained(str(self.output_dir))
+        # LoRAモデルを保存
+        model.model.save_pretrained(str(self.output_dir))
 
-        del self.model, trainer, lora_model
+        del model, trainer, lora_model
         gc.collect()
         torch.cuda.empty_cache()
 
     def evaluate(self) -> None:
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
         sorted_similarity = sentence_emb_similarity_by_peft(
-            self.cfg.retrieval_model.name, self.output_dir, oof, self.misconception_mapping
+            oof,
+            self.misconception_mapping,
+            self.cfg,
+            pretrained_lora_path=self.output_dir,
         )
         oof = oof.with_columns(
             pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")

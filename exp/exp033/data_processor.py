@@ -9,7 +9,7 @@ import numpy as np
 import torch
 import polars as pl
 import torch.nn.functional as F
-from peft import PeftModel
+from peft import PeftModel, LoraConfig, get_peft_model
 from tqdm import tqdm
 from torch import nn
 from lightning import seed_everything
@@ -188,6 +188,45 @@ def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.Dat
     return get_fold(train, cv)
 
 
+def setup_qlora_model(cfg: DictConfig, pretrained_lora_path: Optional[str | Path]) -> tuple[PeftModel, TOKENIZER]:
+    # 量子化したモデルを読み込む
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+    base_model = AutoModel.from_pretrained(
+        cfg.retrieval_model.name,
+        quantization_config=bnb_config,
+        use_cache=False,
+        local_files_only=False,
+        trust_remote_code=True,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(cfg.retrieval_model.name)
+    if pretrained_lora_path is None:
+        # LoRAアダプタを追加
+        lora_config = LoraConfig(
+            **cfg.retrieval_model.lora,
+            bias="none",
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
+            task_type="DEFAULT",
+        )
+        lora_model = get_peft_model(base_model, lora_config)
+        lora_model.print_trainable_parameters()
+    else:
+        lora_model = PeftModel.from_pretrained(base_model, str(pretrained_lora_path))
+    return lora_model, tokenizer
+
+
 def sentence_emb_similarity_by_sentence_transformers(
     retrieval_model_name: str | Path,
     df: pl.DataFrame,
@@ -206,36 +245,29 @@ def sentence_emb_similarity_by_sentence_transformers(
 
 
 def sentence_emb_similarity_by_peft(
-    retrieval_model_name: str | Path,
-    pretrained_peft_model_path: Optional[str | Path],
     df: pl.DataFrame,
     misconception_mapping: pl.DataFrame,
-    max_length: int = 512,
-    batch_size: int = 64,
+    cfg: DictConfig,
+    pretrained_lora_path: Optional[str | Path],
 ) -> np.ndarray:
-    base_model = AutoModel.from_pretrained(retrieval_model_name)
-    tokenizer = AutoTokenizer.from_pretrained(retrieval_model_name)
-    if pretrained_peft_model_path is None:
-        model = base_model
-    else:
-        model = PeftModel.from_pretrained(base_model, str(pretrained_peft_model_path))
+    model, tokenizer = setup_qlora_model(cfg, pretrained_lora_path)
     query_embs = encode(
         model,
         tokenizer,
         df["AllText"].to_list(),
-        max_length=max_length,
-        batch_size=batch_size,
+        max_length=cfg.retrieval_model.max_length,
+        batch_size=cfg.trainer.batch_size,
     )
     passage_embs = encode(
         model,
         tokenizer,
         misconception_mapping["MisconceptionName"].to_list(),
-        max_length=max_length,
-        batch_size=batch_size,
+        max_length=cfg.retrieval_model.max_length,
+        batch_size=cfg.trainer.batch_size,
     )
     similarity = cosine_similarity(query_embs, passage_embs)
     sorted_similarity = np.argsort(-similarity, axis=1)
-    del model, base_model, tokenizer
+    del model, tokenizer
     clean_gpu()
     return sorted_similarity
 
@@ -352,7 +384,10 @@ def generate_candidates(
             exp_name = retrieval_model_name.split("/")[-2]
             if exp_name in ["exp033"]:
                 sorted_similarity = sentence_emb_similarity_by_peft(
-                    retrieval_model_name, None, df, misconception_mapping, cfg.max_length, cfg.trainer.batch_size
+                    df,
+                    misconception_mapping,
+                    cfg,
+                    pretrained_lora_path=retrieval_model_name,
                 )
             else:
                 sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
