@@ -38,8 +38,11 @@ MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
 
 
 def encode(
-    model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 1024, batch_size: int = 32
+    model: MODEL, tokenizer: TOKENIZER, texts: list[str], model_name: str, max_length: int = 2048, batch_size: int = 32
 ) -> np.ndarray:
+    """
+    tokenizerの設定上paddingはlongestに合わせてくれるので、max_lengthは大きめに設定しておく
+    """
     all_embeddings = []
     for i in tqdm(range(0, len(texts), batch_size), desc="Batches", total=len(texts) // batch_size):
         batch_texts = texts[i : i + batch_size]
@@ -48,9 +51,10 @@ def encode(
         )
         with torch.no_grad():
             outputs = model(**features)
-            # TODO: モデルで分岐させる
-            # embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
-            embeddings = last_token_pool(outputs["sentence_embeddings"], features["attention_mask"])
+            if model_name == "nvidia/NV-Embed-v2":
+                embeddings = last_token_pool(outputs["sentence_embeddings"], features["attention_mask"])
+            else:
+                embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
             norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
         all_embeddings.append(to_np(norm_embeddings))
     return np.vstack(all_embeddings)
@@ -257,14 +261,14 @@ def sentence_emb_similarity_by_peft(
         model,
         tokenizer,
         df["AllText"].to_list(),
-        max_length=cfg.retrieval_model.max_length,
+        model_name=cfg.retrieval_model.name,
         batch_size=cfg.trainer.batch_size,
     )
     passage_embs = encode(
         model,
         tokenizer,
         misconception_mapping["MisconceptionName"].to_list(),
-        max_length=cfg.retrieval_model.max_length,
+        model_name=cfg.retrieval_model.name,
         batch_size=cfg.trainer.batch_size,
     )
     similarity = cosine_similarity(query_embs, passage_embs)
@@ -275,7 +279,7 @@ def sentence_emb_similarity_by_peft(
 
 
 def sentence_emb_similarity_by_nvidia(
-    df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig, batch_size: int = 32
+    retrieval_model_name: str, df: pl.DataFrame, misconception_mapping: pl.DataFrame
 ) -> np.ndarray:
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -283,9 +287,10 @@ def sentence_emb_similarity_by_nvidia(
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
     )
-    model = AutoModel.from_pretrained(cfg.retrieval_model.name, quantization_config=bnb_config, trust_remote_code=True)
+    model = AutoModel.from_pretrained(retrieval_model_name, quantization_config=bnb_config, trust_remote_code=True)
 
-    max_length = cfg.retrieval_model.max_length
+    max_length = 32768  # longestに合わせてくれるので大きい値を入れる
+    batch_size = 32
     num_workers = min(os.cpu_count(), 12)  # type: ignore
     # get the embeddings
     instruct = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
@@ -383,7 +388,9 @@ def generate_candidates(
         print(str(retrieval_model_name))
         if is_tuned_model_path:
             exp_name = retrieval_model_name.split("/")[-2]
-            if exp_name in ["exp033"]:
+            assert exp_name.startswith("exp")
+            print(exp_name)
+            if exp_name in ["exp033", "exp035"]:
                 sorted_similarity = sentence_emb_similarity_by_peft(
                     df,
                     misconception_mapping,
@@ -395,7 +402,7 @@ def generate_candidates(
                     retrieval_model_name, df, misconception_mapping
                 )
         elif retrieval_model_name in ["nvidia/NV-Embed-v2"]:
-            sorted_similarity = sentence_emb_similarity_by_nvidia(df, misconception_mapping, cfg)
+            sorted_similarity = sentence_emb_similarity_by_nvidia(retrieval_model_name, df, misconception_mapping)
         else:
             sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
                 retrieval_model_name, df, misconception_mapping

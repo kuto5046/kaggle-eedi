@@ -20,7 +20,7 @@ from transformers import (
     PreTrainedTokenizerFast,
     set_seed,
 )
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util
 from transformers.file_utils import ModelOutput
 
 import wandb
@@ -37,8 +37,24 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
+# https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py#L12-L124
+class CustomMultipleNegativesRankingLoss(nn.Module):
+    def __init__(self, scale: float = 20.0) -> None:
+        super().__init__()
+        self.scale = scale
+        self.cross_entropy_loss = nn.CrossEntropyLoss()
+
+    def forward(self, anchor_embs: torch.tensor, pos_embs: torch.tensor, neg_embs: torch.tensor) -> torch.tensor:
+        cand_embs = torch.cat([pos_embs, neg_embs])
+        scores = util.cos_sim(anchor_embs, cand_embs) * self.scale
+        range_labels = torch.arange(
+            0, scores.size(0), device=scores.device
+        )  # [0, 1]となりposが0, negが1として学習される
+        return self.cross_entropy_loss(scores, range_labels)
+
+
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 1024) -> None:
+    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
 
@@ -48,7 +64,6 @@ class TripletCollator:
         negatives = [f["PredictMisconceptionName"] for f in features]
 
         # Tokenize each of the triplet components separately
-        # nvidiaモデルだと形状が揃わずエラーが出てしまう。
         queries_encoded = self.tokenizer(
             queries, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
@@ -66,7 +81,7 @@ class TripletSimCSEModel(nn.Module):
     def __init__(self, model: PeftModel, cfg: DictConfig) -> None:
         super().__init__()
         self.model = model
-        self.triplet_loss = nn.TripletMarginLoss()
+        self.criterion = CustomMultipleNegativesRankingLoss()
         self.retrieval_model_name = cfg.retrieval_model.name
 
     def sentence_embedding(self, hidden_state: torch.tensor, mask: torch.tensor) -> torch.tensor:
@@ -91,7 +106,7 @@ class TripletSimCSEModel(nn.Module):
         neg_emb = self.encode(negative)  # Negative embeddings
 
         # Compute triplet loss
-        loss = self.triplet_loss(anchor_emb, pos_emb, neg_emb)
+        loss = self.criterion(anchor_emb, pos_emb, neg_emb)
         return ModelOutput(loss=loss, anchor=anchor_emb, positive=pos_emb, negative=neg_emb)
 
 
@@ -181,7 +196,7 @@ class TrainPipeline:
         lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
         model = TripletSimCSEModel(lora_model, self.cfg)
 
-        data_collator = TripletCollator(tokenizer, self.cfg.retrieval_model.max_length)
+        data_collator = TripletCollator(tokenizer)
 
         params = self.cfg.trainer
         args = TrainingArguments(
@@ -227,14 +242,14 @@ class TrainPipeline:
             data_collator=data_collator,
         )
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
-        trainer.train()
+        # trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
         # LoRAモデルを保存
         model.model.save_pretrained(str(self.output_dir))
 
-        del model, trainer, lora_model, tokenizer
+        del model, trainer, lora_model
         gc.collect()
         torch.cuda.empty_cache()
 
