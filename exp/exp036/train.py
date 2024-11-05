@@ -20,7 +20,7 @@ from transformers import (
     PreTrainedTokenizerFast,
     set_seed,
 )
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util
 from transformers.file_utils import ModelOutput
 
 import wandb
@@ -35,6 +35,22 @@ MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
 # seed固定用
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
+# https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py#L12-L124
+class CustomMultipleNegativesRankingLoss(nn.Module):
+    def __init__(self, scale: float = 20.0) -> None:
+        super().__init__()
+        self.scale = scale
+        self.cross_entropy_loss = nn.CrossEntropyLoss()
+
+    def forward(self, anchor_embs: torch.tensor, pos_embs: torch.tensor, neg_embs: torch.tensor) -> torch.tensor:
+        cand_embs = torch.cat([pos_embs, neg_embs])
+        scores = util.cos_sim(anchor_embs, cand_embs) * self.scale
+        range_labels = torch.arange(
+            0, scores.size(0), device=scores.device
+        )  # [0, 1]となりposが0, negが1として学習される
+        return self.cross_entropy_loss(scores, range_labels)
 
 
 class TripletCollator:
@@ -65,7 +81,7 @@ class TripletSimCSEModel(nn.Module):
     def __init__(self, model: PeftModel) -> None:
         super().__init__()
         self.model = model
-        self.triplet_loss = nn.TripletMarginLoss()
+        self.criterion = CustomMultipleNegativesRankingLoss()
 
     def sentence_embedding(self, hidden_state: torch.tensor, mask: torch.tensor) -> torch.tensor:
         return hidden_state[torch.arange(hidden_state.size(0)), mask.sum(1) - 1]
@@ -85,7 +101,7 @@ class TripletSimCSEModel(nn.Module):
         neg_emb = self.encode(negative)  # Negative embeddings
 
         # Compute triplet loss
-        loss = self.triplet_loss(anchor_emb, pos_emb, neg_emb)
+        loss = self.criterion(anchor_emb, pos_emb, neg_emb)
         return ModelOutput(loss=loss, anchor=anchor_emb, positive=pos_emb, negative=neg_emb)
 
 
