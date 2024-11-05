@@ -7,8 +7,7 @@ retrieval_model:
   names:
     - ${path.model_dir}/${exp_name}/run0_dunzhang-stella_en_1.5B_v5_top${max_candidates}_rank${retrieval_model.lora.r}_batch${trainer.batch_size}
   lora:
-    r: 8
-  max_length: 1024
+    r: 64
 
 max_candidates: 100
 

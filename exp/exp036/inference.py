@@ -88,28 +88,7 @@ def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, 
 
 
 def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    if cfg.llm_model.name in ["Qwen/Qwen2.5-Math-7B-Instruct"]:
-        # https://docs.vllm.ai/en/v0.6.0/quantization/auto_awq.html
-        # quant_config = { "zero_point": True, "q_group_size": 128, "w_bit": 4, "version": "GEMM" }
-        # quant_path = str(cfg.path.output_dir)
-        # # Load model
-        # model = AutoAWQForCausalLM.from_pretrained(
-        #     cfg.llm_model.name,
-        #     device_map="cpu",
-        #     **{"low_cpu_mem_usage": True, "use_cache": False}
-        # )
-        # tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model.name, trust_remote_code=True).to("cpu")
-
-        # # Quantize
-        # model.quantize(tokenizer, quant_config=quant_config)
-
-        # # Save quantized model
-        # model.save_quantized(quant_path)
-        # tokenizer.save_pretrained(quant_path)
-        # cfg.vllm.model.model = quant_path
-        llm = vllm.LLM(**cfg.vllm.model)
-    else:
-        llm = vllm.LLM(**cfg.vllm.model)
+    llm = vllm.LLM(**cfg.vllm.model)
     # tokenizer = llm.get_tokenizer()
     sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
     full_responses = llm.generate(
@@ -138,13 +117,11 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
         pl.concat_str(
             [
-                pl.col("ConstructName"),
-                pl.col("SubjectName"),
-                pl.col("QuestionText"),
-                pl.col("InCorrectAnswerText"),
+                pl.col("AllText"),
+                pl.lit("\n## LLMPredictMisconception"),
                 pl.col("LLMPredictMisconceptionName"),
             ],
-            separator=" ",
+            separator="",
         ).alias("AllText")
     )
     return df

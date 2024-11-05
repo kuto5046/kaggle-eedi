@@ -385,7 +385,7 @@ def generate_candidates(
             exp_name = retrieval_model_name.split("/")[-2]
             assert exp_name.startswith("exp")
             print(exp_name)
-            if exp_name in ["exp033", "exp035"]:
+            if exp_name in ["exp033", "exp035", "exp036"]:
                 sorted_similarity = sentence_emb_similarity_by_peft(
                     df,
                     misconception_mapping,
