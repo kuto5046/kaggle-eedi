@@ -38,7 +38,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 1024) -> None:
+    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
 
@@ -62,11 +62,10 @@ class TripletCollator:
 
 
 class TripletSimCSEModel(nn.Module):
-    def __init__(self, model: PeftModel, temperature: float = 0.02) -> None:
+    def __init__(self, model: PeftModel) -> None:
         super().__init__()
         self.model = model
         self.triplet_loss = nn.TripletMarginLoss()
-        self.temperature = temperature
 
     def sentence_embedding(self, hidden_state: torch.tensor, mask: torch.tensor) -> torch.tensor:
         return hidden_state[torch.arange(hidden_state.size(0)), mask.sum(1) - 1]
@@ -176,7 +175,7 @@ class TrainPipeline:
         lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
         model = TripletSimCSEModel(lora_model)
 
-        data_collator = TripletCollator(tokenizer, self.cfg.retrieval_model.max_length)
+        data_collator = TripletCollator(tokenizer)
 
         params = self.cfg.trainer
         args = TrainingArguments(

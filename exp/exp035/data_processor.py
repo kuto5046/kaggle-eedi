@@ -38,8 +38,11 @@ MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
 
 
 def encode(
-    model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 1024, batch_size: int = 32
+    model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 2048, batch_size: int = 32
 ) -> np.ndarray:
+    """
+    tokenizerの設定上paddingはlongestに合わせてくれるので、max_lengthは大きめに設定しておく
+    """
     all_embeddings = []
     for i in tqdm(range(0, len(texts), batch_size), desc="Batches", total=len(texts) // batch_size):
         batch_texts = texts[i : i + batch_size]
@@ -255,14 +258,12 @@ def sentence_emb_similarity_by_peft(
         model,
         tokenizer,
         df["AllText"].to_list(),
-        max_length=cfg.retrieval_model.max_length,
         batch_size=cfg.trainer.batch_size,
     )
     passage_embs = encode(
         model,
         tokenizer,
         misconception_mapping["MisconceptionName"].to_list(),
-        max_length=cfg.retrieval_model.max_length,
         batch_size=cfg.trainer.batch_size,
     )
     similarity = cosine_similarity(query_embs, passage_embs)
@@ -283,7 +284,7 @@ def sentence_emb_similarity_by_nvidia(
     )
     model = AutoModel.from_pretrained(retrieval_model_name, quantization_config=bnb_config, trust_remote_code=True)
 
-    max_length = 1024  # 32768
+    max_length = 32768  # longestに合わせてくれるので大きい値を入れる
     batch_size = 64
     num_workers = 12
     # get the embeddings
@@ -382,7 +383,9 @@ def generate_candidates(
         print(str(retrieval_model_name))
         if is_tuned_model_path:
             exp_name = retrieval_model_name.split("/")[-2]
-            if exp_name in ["exp033"]:
+            assert exp_name.startswith("exp")
+            print(exp_name)
+            if exp_name in ["exp033", "exp035"]:
                 sorted_similarity = sentence_emb_similarity_by_peft(
                     df,
                     misconception_mapping,

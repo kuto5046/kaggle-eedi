@@ -50,28 +50,22 @@ class DataProcessor:
         return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
-        df = generate_candidates(
-            df,
-            misconception,
-            self.cfg.retrieval_model.names,
-            num_candidates=self.cfg.max_candidates,
-            weights=self.cfg.retrieval_model.weights,
-            local_files_only=True,
-        )
+        df = generate_candidates(df, misconception, self.cfg)
+        LOGGER.info("first retrieval")
+        LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
+        LOGGER.info(f"recall: {calc_recall(df):.5f}")
+        LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         df = add_prompt(df, misconception, self.cfg.llm_model.name)
         # LLMで予測
         df = llm_inference(df, self.cfg)
         df.select(
             ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
         ).write_csv(self.output_dir / "eval.csv")
-        df = generate_candidates(
-            df,
-            misconception,
-            self.cfg.retrieval_model.names,
-            num_candidates=self.cfg.retrieve_num,
-            weights=self.cfg.retrieval_model.weights,
-            local_files_only=True,
-        )
+        df = generate_candidates(df, misconception, self.cfg)
+        LOGGER.info("second retrieval")
+        LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
+        LOGGER.info(f"recall: {calc_recall(df):.5f}")
+        LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         return df
 
     def run(self) -> None:
@@ -80,9 +74,6 @@ class DataProcessor:
         df = self.add_fold(df)
         use_df = df.filter(pl.col("fold") == self.cfg.use_fold).sample(n=100, shuffle=True, seed=self.cfg.seed)
         use_df = self.feature_engineering(use_df, misconception)
-        LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(use_df)}")
-        LOGGER.info(f"recall: {calc_recall(use_df):.5f}")
-        LOGGER.info(f"mapk: {calc_mapk(use_df):.5f}")
 
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore

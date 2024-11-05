@@ -39,7 +39,6 @@ retrieval_model:
     r: 8
     lora_alpha: 16
     lora_dropout: 0.05
-  max_length: 512
 
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
@@ -54,7 +53,7 @@ vllm:
     trust_remote_code: true
     dtype: half
     enforce_eager: true
-    max_model_len: 1024
+    max_model_len: 3000
     disable_log_stats: true
     seed: ${seed}
     enable_lora: false  # LoRAの後付けを可能にする
