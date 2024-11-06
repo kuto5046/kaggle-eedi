@@ -1,5 +1,6 @@
 import gc
 import os
+import random
 import logging
 from typing import Union
 from pathlib import Path
@@ -47,9 +48,7 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
     def forward(self, anchor_embs: torch.tensor, pos_embs: torch.tensor, neg_embs: torch.tensor) -> torch.tensor:
         cand_embs = torch.cat([pos_embs, neg_embs])
         scores = util.cos_sim(anchor_embs, cand_embs) * self.scale
-        range_labels = torch.arange(
-            0, scores.size(0), device=scores.device
-        )  # [0, 1]となりposが0, negが1として学習される
+        range_labels = torch.arange(0, scores.size(0), device=scores.device)
         return self.cross_entropy_loss(scores, range_labels)
 
 
@@ -61,7 +60,7 @@ class TripletCollator:
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
         positives = [f["MisconceptionName"] for f in features]
-        negatives = [f["PredictMisconceptionName"] for f in features]
+        negatives = [random.sample(f["PredictMisconceptionName"], 1)[0] for f in features]
 
         # Tokenize each of the triplet components separately
         queries_encoded = self.tokenizer(
@@ -144,36 +143,29 @@ class TrainPipeline:
         df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "train.csv")
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
-        # df = pl.concat([
-        #     df.filter(pl.col("MisconceptionId")!=pl.col("PredictMisconceptionId")).select(["QuestionId_Answer", "AllText", "PredictMisconceptionName", "fold"]).unique().rename({"PredictMisconceptionName": "MisconceptionName"}).with_columns(pl.lit(0).alias("labels")),
-        #     df.select(["QuestionId_Answer", "AllText", "MisconceptionName", "fold"]).unique().with_columns(pl.lit(1).alias("labels")),
-        # ])
-
+        # group化することでQuestionと正例のペアがバッチ内で重複しないようにする
+        df = (
+            df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
+            .group_by(
+                ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
+            )
+            .agg(pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"))
+        )
         if self.cfg.debug:
-            df = df.sample(fraction=0.01, seed=self.cfg.seed)
+            df = df.sample(fraction=0.1, seed=self.cfg.seed)
 
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
 
-        self.train_dataset = (
-            HFDataset.from_polars(self.train)
-            .filter(
-                lambda example: example["MisconceptionId"] != example["PredictMisconceptionId"],
-            )
-            .select_columns(
-                # MisconceptionNameが正例、PredictMisconceptionNameが負例。ペアを1つの入力としている
-                ["AllText", "MisconceptionName", "PredictMisconceptionName"]
-            )
+        self.train_dataset = HFDataset.from_polars(self.train).select_columns(
+            # MisconceptionNameが正例、PredictMisconceptionNameが負例。ペアを1つの入力としている
+            ["AllText", "MisconceptionName", "PredictMisconceptionName"]
         )
         if self.cfg.shuffle_dataset:
             self.train_dataset = self.train_dataset.shuffle(seed=self.cfg.seed)
 
-        self.valid_dataset = (
-            HFDataset.from_polars(self.valid)
-            .filter(
-                lambda example: example["MisconceptionId"] != example["PredictMisconceptionId"],
-            )
-            .select_columns(["AllText", "MisconceptionName", "PredictMisconceptionName"])
+        self.valid_dataset = HFDataset.from_polars(self.valid).select_columns(
+            ["AllText", "MisconceptionName", "PredictMisconceptionName"]
         )
 
     def setup_logger(self) -> None:

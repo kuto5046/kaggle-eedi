@@ -1,13 +1,14 @@
 # @package _global_
-run_name: run0_dunzhang-stella_en_1.5B_v5_top${max_candidates}_rank${retrieval_model.lora.r}_batch${trainer.batch_size}
+run_name: run4_dunzhang-stella_en_1.5B_v5_top${max_candidates}_rank${retrieval_model.lora.r}_batch${trainer.batch_size}_alpha${retrieval_model.lora.lora_alpha}
 use_fold: 0
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   lora:
     r: 64
+    lora_alpha: 64
 
-max_candidates: 100
+max_candidates: 25
 
 trainer:
   epoch: 1
