@@ -5,11 +5,11 @@ use_fold: 0
 retrieval_model:
   name: nvidia/NV-Embed-v2
   lora:
-    r: 8
-    lora_alpha: 16
+    r: 64
+    lora_alpha: 128
     lora_dropout: 0.05
 
-max_candidates: 25
+max_candidates: 50
 
 trainer:
   epoch: 1
