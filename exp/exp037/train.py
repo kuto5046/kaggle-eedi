@@ -53,15 +53,14 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048, nega_sample_size: int = 1) -> None:
+    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
-        self.nega_sample_size = nega_sample_size
 
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
         positives = [f["MisconceptionName"] for f in features]
-        negatives = [random.sample(f["PredictMisconceptionName"], self.nega_sample_size) for f in features]
+        negatives = [random.sample(f["PredictMisconceptionName"], 1)[0] for f in features]
 
         # Tokenize each of the triplet components separately
         queries_encoded = self.tokenizer(
@@ -147,11 +146,13 @@ class TrainPipeline:
         # group化することでQuestionと正例のペアがバッチ内で重複しないようにする
         df = (
             df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
-            .group_by(["QuestionId_Answer", "AllText", "MisconceptionName", "fold"], maintain_order=True)
+            .group_by(
+                ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
+            )
             .agg(pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"))
         )
         if self.cfg.debug:
-            df = df.sample(fraction=0.01, seed=self.cfg.seed)
+            df = df.sample(fraction=0.1, seed=self.cfg.seed)
 
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
