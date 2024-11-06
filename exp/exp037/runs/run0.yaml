@@ -10,7 +10,7 @@ retrieval_model:
 max_candidates: 25
 
 trainer:
-  epoch: 1
+  epoch: 10
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true

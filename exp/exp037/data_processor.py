@@ -98,15 +98,15 @@ def preprocess_table(df: pl.DataFrame, common_cols: list[str]) -> pl.DataFrame:
     long_df = long_df.with_columns(
         pl.concat_str(
             [
-                pl.lit("\n## Construct"),
+                pl.lit("\n## Construct\n"),
                 pl.col("ConstructName"),
-                pl.lit("\n## Subject"),
+                pl.lit("\n## Subject\n"),
                 pl.col("SubjectName"),
-                pl.lit("\n## Question"),
+                pl.lit("\n## Question\n"),
                 pl.col("QuestionText"),
-                pl.lit("\n## CorrectAnswer"),
+                pl.lit("\n## CorrectAnswer\n"),
                 pl.col("CorrectAnswerText"),
-                pl.lit("\n## InCorrectAnswer"),
+                pl.lit("\n## InCorrectAnswer\n"),
                 pl.col("InCorrectAnswerText"),
             ],
             separator="",
