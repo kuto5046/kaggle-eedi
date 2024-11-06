@@ -7,10 +7,10 @@ retrieval_model:
   lora:
     r: 64
 
-max_candidates: 50
+max_candidates: 25
 
 trainer:
-  epoch: 1
+  epoch: 2
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
