@@ -9,7 +9,7 @@ retrieval_model:
     lora_alpha: 128
     lora_dropout: 0.05
 
-max_candidates: 50
+max_candidates: 30
 
 trainer:
   epoch: 1
