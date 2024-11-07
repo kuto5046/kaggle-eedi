@@ -385,7 +385,7 @@ def generate_candidates(
             exp_name = retrieval_model_name.split("/")[-2]
             assert exp_name.startswith("exp")
             print(exp_name)
-            if exp_name in ["exp033", "exp035", "exp036"]:
+            if exp_name in ["exp033", "exp035", "exp036", "exp037"]:
                 sorted_similarity = sentence_emb_similarity_by_peft(
                     df,
                     misconception_mapping,
@@ -405,7 +405,7 @@ def generate_candidates(
         preds.append(sorted_similarity[:, : cfg.max_candidates + 10])  # アンサンブル用に大きめに計算
 
     pred = ensemble_predictions(preds, cfg.retrieval_model.weights)
-    df = df.with_columns(pl.Series(pred[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId"))
+    df = df.with_columns(pl.Series(pred[:, :25].tolist()).alias("PredictMisconceptionId"))
 
     return df
 
