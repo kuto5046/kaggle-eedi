@@ -78,17 +78,22 @@ class TripletCollator:
 
 
 class TripletSimCSEModel(nn.Module):
-    def __init__(self, model: PeftModel) -> None:
+    def __init__(self, model: PeftModel, cfg: DictConfig) -> None:
         super().__init__()
         self.model = model
         self.criterion = CustomMultipleNegativesRankingLoss()
+        self.retrieval_model_name = cfg.retrieval_model.name
 
     def sentence_embedding(self, hidden_state: torch.tensor, mask: torch.tensor) -> torch.tensor:
         return hidden_state[torch.arange(hidden_state.size(0)), mask.sum(1) - 1]
 
     def encode(self, features: dict[str, torch.tensor]) -> torch.tensor:
-        outputs = self.model(**features)
-        return self.sentence_embedding(outputs.last_hidden_state, features["attention_mask"])
+        if self.retrieval_model_name == "nvidia/NV-Embed-v2":
+            outputs = self.model(**features)
+            return self.sentence_embedding(outputs["sentence_embeddings"], features["attention_mask"])
+        else:
+            outputs = self.model(**features)
+            return self.sentence_embedding(outputs.last_hidden_state, features["attention_mask"])
 
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs: dict) -> None:
         self.model.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
@@ -182,7 +187,7 @@ class TrainPipeline:
 
     def training(self) -> None:
         lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
-        model = TripletSimCSEModel(lora_model)
+        model = TripletSimCSEModel(lora_model, self.cfg)
 
         data_collator = TripletCollator(tokenizer)
 

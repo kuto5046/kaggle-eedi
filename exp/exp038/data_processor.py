@@ -37,7 +37,7 @@ MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
 
 
 def encode(
-    model: MODEL, tokenizer: TOKENIZER, texts: list[str], max_length: int = 2048, batch_size: int = 32
+    model: MODEL, tokenizer: TOKENIZER, texts: list[str], model_name: str, max_length: int = 2048, batch_size: int = 32
 ) -> np.ndarray:
     """
     tokenizerの設定上paddingはlongestに合わせてくれるので、max_lengthは大きめに設定しておく
@@ -50,7 +50,10 @@ def encode(
         )
         with torch.no_grad():
             outputs = model(**features)
-            embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
+            if model_name == "nvidia/NV-Embed-v2":
+                embeddings = last_token_pool(outputs["sentence_embeddings"], features["attention_mask"])
+            else:
+                embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
             norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
         all_embeddings.append(to_np(norm_embeddings))
     return np.vstack(all_embeddings)
@@ -233,7 +236,7 @@ def setup_qlora_model(cfg: DictConfig, pretrained_lora_path: Optional[str | Path
     base_model = AutoModel.from_pretrained(
         cfg.retrieval_model.name,
         quantization_config=bnb_config,
-        use_cache=False,
+        # use_cache=False,  # nvidiaモデルはエラーが出る。コメントアウトするとgradient checkpointingの際にwarningが出るが問題はない
         local_files_only=False,
         trust_remote_code=True,
     )
@@ -289,12 +292,14 @@ def sentence_emb_similarity_by_peft(
         model,
         tokenizer,
         df["AllText"].to_list(),
+        model_name=cfg.retrieval_model.name,
         batch_size=cfg.trainer.batch_size,
     )
     passage_embs = encode(
         model,
         tokenizer,
         misconception_mapping["MisconceptionName"].to_list(),
+        model_name=cfg.retrieval_model.name,
         batch_size=cfg.trainer.batch_size,
     )
     similarity = cosine_similarity(query_embs, passage_embs)
@@ -316,8 +321,8 @@ def sentence_emb_similarity_by_nvidia(
     model = AutoModel.from_pretrained(retrieval_model_name, quantization_config=bnb_config, trust_remote_code=True)
 
     max_length = 32768  # longestに合わせてくれるので大きい値を入れる
-    batch_size = 64
-    num_workers = 12
+    batch_size = 32
+    num_workers = min(os.cpu_count(), 12)  # type: ignore
     # get the embeddings
     instruct = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
     query_prefix = f"Instruct: {instruct} \nQuery: "
