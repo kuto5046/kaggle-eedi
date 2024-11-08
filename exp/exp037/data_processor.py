@@ -14,7 +14,6 @@ from tqdm import tqdm
 from torch import nn
 from lightning import seed_everything
 from omegaconf import DictConfig
-from numpy.typing import NDArray
 from transformers import (
     AutoModel,
     AutoTokenizer,
@@ -144,31 +143,63 @@ def calc_recall(df: pl.DataFrame) -> float:
     )
 
 
-# ref: https://www.kaggle.com/code/cdeotte/how-to-train-open-book-model-part-1#MAP@3-Metric
-def mapk(preds: NDArray[np.object_], labels: NDArray[np.int_], k: int = 25) -> float:
-    map_sum = 0
-    for _x, y in zip(preds, labels):
-        x = [int(i) for i in _x.split(" ")]
-        z = [1 / i if y == j else 0 for i, j in zip(range(1, k + 1), x)]
-        map_sum += np.sum(z)
-    return map_sum / len(preds)
+def apk(actual: list[int], predicted: list[int], k: int = 25) -> float:
+    """Computes the average precision at k.
+
+    Parameters
+    ----------
+    actual : A list of elements that are to be predicted (order doesn't matter)
+    predicted : A list of predicted elements (order does matter)
+
+    Returns
+    -------
+    score : The average precision at k over the input lists
+    """
+
+    score = 0.0
+    num_hits = 0.0
+
+    for i, p in enumerate(predicted):
+        # first condition checks whether it is valid prediction
+        # second condition checks if prediction is not repeated
+        if p in actual and p not in predicted[:i]:
+            num_hits += 1.0
+            score += num_hits / (i + 1.0)
+
+    return score / min(len(actual), k)
+
+
+def mapk(actual: list[list[int]], predicted: list[list[int]], k: int = 25) -> float:
+    """Computes the mean average precision at k.
+
+    Parameters
+    ----------
+    actual : A list of lists of elements that are to be predicted (order doesn't matter)
+    predicted : list of lists of predicted elements (order matters in the lists)
+    k : The maximum number of predicted elements
+
+    Returns
+    -------
+    score : The mean average precision at k over the input lists
+    """
+
+    return np.mean([apk(a, p, k) for a, p in zip(actual, predicted)]).item()
 
 
 def calc_mapk(df: pl.DataFrame) -> float:
     """
     Question:str - MisconceptionId: int - PredictMisconceptionId: list[int]のペアのdataframeを入力とする
     """
+    # 正解データもリスト形式にする
     agg_df = (
-        df.with_columns(
-            pl.col("PredictMisconceptionId").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
-        )
+        df.drop(["MisconceptionId"])
         .join(
-            df[["QuestionId_Answer", "MisconceptionId"]].unique(),
+            df.group_by({"QuestionId_Answer"}).agg(["MisconceptionId"]),
             on=["QuestionId_Answer"],
         )
         .sort(by=["QuestionId_Answer"])
     )
-    return mapk(agg_df["PredictMisconceptionId"].to_numpy(), agg_df["MisconceptionId"])
+    return mapk(agg_df["MisconceptionId"].to_list(), agg_df["PredictMisconceptionId"].to_list())
 
 
 def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> pl.DataFrame:
@@ -405,7 +436,7 @@ def generate_candidates(
         preds.append(sorted_similarity[:, : cfg.max_candidates + 10])  # アンサンブル用に大きめに計算
 
     pred = ensemble_predictions(preds, cfg.retrieval_model.weights)
-    df = df.with_columns(pl.Series(pred[:, :25].tolist()).alias("PredictMisconceptionId"))
+    df = df.with_columns(pl.Series(pred[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId"))
 
     return df
 

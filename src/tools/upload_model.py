@@ -8,9 +8,9 @@ from kaggle.api.kaggle_api_extended import KaggleApi
 
 DATASET_TITLE = "kuto-eedi-model"  # ここをコンペごとに変更
 
-TARGET_EXP_NAMES = [
+TARGET_EXP_RUN_NAMES = [
     # "feature_store",
-    "dummy",
+    "dummy/run0",
     # "exp001",
     # "exp002",
     # "exp003",
@@ -24,10 +24,11 @@ TARGET_EXP_NAMES = [
     # "exp016",
     # "exp021",
     # "exp023",
-    "exp025",
+    # "exp025",
     # "exp026",
     # "exp029",
-    "exp030",
+    # "exp030",
+    "exp037/run9_dunzhang-stella_en_1.5B_v5_epoch20_top50_alpha512",
 ]
 
 
@@ -43,8 +44,9 @@ def copy_files_with_exts(source_dir: Path, dest_dir: Path, exts: list) -> None:
         for source_path in source_dir.rglob(f"*{ext}"):
             # dest_dir内での相対パスを計算
             relative_path = source_path.relative_to(source_dir)
-            exp_name = str(relative_path).split("/")[0]
-            if exp_name not in TARGET_EXP_NAMES:
+            exp_run_name = "/".join(str(relative_path).split("/")[:-1])
+
+            if exp_run_name not in TARGET_EXP_RUN_NAMES:
                 continue
 
             dest_path = dest_dir / relative_path

@@ -1,0 +1,9 @@
+# @package _global_
+run_name: sub0
+phase: train
+retrieval_model:
+  name: dunzhang/stella_en_1.5B_v5
+  names:
+    - ${path.model_dir}/exp037/run9_dunzhang-stella_en_1.5B_v5_epoch20_top50_alpha512
+
+max_candidates: 25  # 1つの学習データに紐づける負例の候補数

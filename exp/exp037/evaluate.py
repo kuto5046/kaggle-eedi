@@ -23,8 +23,8 @@ class DataProcessor:
     def __init__(self, cfg: DictConfig) -> None:
         for key, value in cfg.path.items():
             cfg.path[key] = Path(value)
-        if cfg.debug:
-            cfg.run_name = "debug"
+        # if cfg.debug:
+        #     cfg.run_name = "debug"
         self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
         self.output_dir.mkdir(exist_ok=True, parents=True)
 
@@ -55,17 +55,18 @@ class DataProcessor:
         LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
         LOGGER.info(f"recall: {calc_recall(df):.5f}")
         LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
-        df = add_prompt(df, misconception, self.cfg.llm_model.name)
-        # LLMで予測
-        df = llm_inference(df, self.cfg)
-        df.select(
-            ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
-        ).write_csv(self.output_dir / "eval.csv")
-        df = generate_candidates(df, misconception, self.cfg)
-        LOGGER.info("second retrieval")
-        LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
-        LOGGER.info(f"recall: {calc_recall(df):.5f}")
-        LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
+        if self.cfg.llm_model.use:
+            df = add_prompt(df, misconception, self.cfg.llm_model.name)
+            # LLMで予測
+            df = llm_inference(df, self.cfg)
+            df.select(
+                ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
+            ).write_csv(self.output_dir / "eval.csv")
+            df = generate_candidates(df, misconception, self.cfg)
+            LOGGER.info("second retrieval")
+            LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
+            LOGGER.info(f"recall: {calc_recall(df):.5f}")
+            LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         return df
 
     def run(self) -> None:

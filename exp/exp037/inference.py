@@ -166,18 +166,16 @@ class InferencePipeline:
     def run(self) -> None:
         # embモデルでfirst retrieval
         df, misconception_mapping = self.setup_dataset()
-        # llm inference
-        df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
-        df = llm_inference(df, self.cfg)
-        # second retreval
-        df = generate_candidates(
-            df,
-            misconception_mapping,
-            self.cfg.retrieval_model.names,
-            self.cfg.retrieve_num,
-            self.cfg.retrieval_model.weights,
-            local_files_only=True,
-        )
+        if self.cfg.llm_model.use:
+            # llm inference
+            df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
+            df = llm_inference(df, self.cfg)
+            # second retreval
+            df = generate_candidates(
+                df,
+                misconception_mapping,
+                self.cfg,
+            )
         self.make_submission(df)
 
 

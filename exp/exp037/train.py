@@ -46,8 +46,9 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
     def forward(self, anchor_embs: torch.tensor, pos_embs: torch.tensor, neg_embs: torch.tensor) -> torch.tensor:
-        cand_embs = torch.cat([pos_embs, neg_embs])
-        scores = util.cos_sim(anchor_embs, cand_embs) * self.scale
+        cand_embs = torch.cat([pos_embs, neg_embs])  # (batch*2, emb_dim)
+        # scores[i][j]: i番目のanchorとj番目のcandidateのcos類似度
+        scores = util.cos_sim(anchor_embs, cand_embs) * self.scale  # (batch, batch*2)
         range_labels = torch.arange(0, scores.size(0), device=scores.device)
         return self.cross_entropy_loss(scores, range_labels)
 
