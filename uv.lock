@@ -1436,6 +1436,7 @@ dependencies = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "kaggle" },
+    { name = "kagglehub" },
     { name = "lightgbm" },
     { name = "lightning" },
     { name = "mypy" },
@@ -1484,6 +1485,7 @@ requires-dist = [
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "ipywidgets", specifier = ">=8.1.5" },
     { name = "kaggle", specifier = "==1.6.1" },
+    { name = "kagglehub", specifier = ">=0.3.3" },
     { name = "lightgbm", specifier = ">=4.5" },
     { name = "lightning", specifier = ">=2.3.3" },
     { name = "mypy", specifier = ">=1.11.2" },
@@ -1518,6 +1520,20 @@ dev = [
     { name = "autoawq", specifier = ">=0.2.5" },
     { name = "autoawq-kernels", git = "https://github.com/casper-hansen/AutoAWQ_kernels.git" },
     { name = "flash-attn", specifier = ">=2.6.3" },
+]
+
+[[package]]
+name = "kagglehub"
+version = "0.3.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "requests" },
+    { name = "tqdm" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b0/69/3e3d9533b44535903011157102bcf08ad4124f12b5d2c294850e6fad5032/kagglehub-0.3.3.tar.gz", hash = "sha256:0777d4d1ee1e59d4125b14ba62a46b2eadedb68bc6517479f6fb02a522a262f8", size = 60620 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c4/d1/4ab25019a168f5c414202f124d156e11ac79f07845d67288929311f1b1b2/kagglehub-0.3.3-py3-none-any.whl", hash = "sha256:5370acde855d04b6d8a7bc242edff339266913fffc8b198d31859b25b7d095f7", size = 42852 },
 ]
 
 [[package]]
