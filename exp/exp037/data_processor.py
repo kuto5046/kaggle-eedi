@@ -159,7 +159,7 @@ def apk(actual: list[int], predicted: list[int], k: int = 25) -> float:
     score = 0.0
     num_hits = 0.0
 
-    for i, p in enumerate(predicted):
+    for i, p in enumerate(predicted[:k]):
         # first condition checks whether it is valid prediction
         # second condition checks if prediction is not repeated
         if p in actual and p not in predicted[:i]:
@@ -359,6 +359,7 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
     df = df.explode("PredictMisconceptionId").join(
         misconception_mapping.rename(lambda x: "Predict" + x),
         on="PredictMisconceptionId",
+        how="left",  # inner joinだとpredict idがsortされてしまう
     )
     return df
 

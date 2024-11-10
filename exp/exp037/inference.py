@@ -29,18 +29,24 @@ def preprocess_text(x: str) -> str:
 
 
 def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
-    prompt = """Here is a question about {ConstructName}({SubjectName}).
+    prompt = """
+Below is a mathematics question on {ConstructName} ({SubjectName}):
+
 Question: {Question}
 Correct Answer: {CorrectAnswer}
-Incorrect Answer: {IncorrectAnswer}
+Student's Incorrect Answer: {IncorrectAnswer}
 
-You are a Mathematics teacher.
-Your task is to reason and identify the misconception behind the Incorrect Answer with the Question in English.
-Answer concisely what misconception it is to lead to getting the incorrect answer.
-No need to give the reasoning process and do not use "The misconception is" to start your answers.
-There are some relative and possible misconceptions below to help you make the decision:
+As a mathematics teacher, your task is to:
+
+- Analyze the student's incorrect answer.
+- Rank the given possible misconceptions from most likely to least likely based on how they could have led to the student's error.
+- Provide the ranked list of IDs separated by '\n' (newline characters) without additional explanations.
+- Do not include the reasoning process.
+Here are the possible misconceptions to consider (each with an ID):
 
 {Retrieval}
+
+Based on the above information, please rank the IDs of the misconceptions in order of likelihood that caused the student's error, separated by '\n'.
 """
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     texts = [
@@ -80,10 +86,12 @@ There are some relative and possible misconceptions below to help you make the d
 
 
 def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, str]) -> str:
+    # 並びをrandomにする
+    # misconception_ids = random.sample(misconception_ids, len(misconception_ids))
     retrieval = ""
     for i, id in enumerate(misconception_ids):
         name = id2name_mapping[id]
-        retrieval += f"- {name} \n"
+        retrieval += f"{id}: {name} \n"
     return retrieval
 
 
@@ -108,22 +116,20 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     for row in df.iter_rows(named=True):
         candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
 
+    assert cfg.vllm.sampling.n == 1
     preds = []
     for x in full_responses:
-        pred = ""
         for output in x.outputs:
-            pred += output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "
+            # pred += output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "full_responses[0].outputs[0].text.strip().split('\n')
+            pred = [
+                int(id)
+                for id in output.text.replace("<|im_start|>", "")
+                .replace(":", "")
+                .strip()
+                .split("\n")[: cfg.retrieve_num]
+            ]
         preds.append(pred)
-    df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
-        pl.concat_str(
-            [
-                pl.col("AllText"),
-                pl.lit("\n## LLMPredictMisconception"),
-                pl.col("LLMPredictMisconceptionName"),
-            ],
-            separator="",
-        ).alias("AllText")
-    )
+    df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName"))
     return df
 
 

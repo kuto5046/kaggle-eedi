@@ -12,6 +12,7 @@ from .data_processor import (
     calc_recall,
     get_groupkfold,
     preprocess_table,
+    explode_candidates,
     generate_candidates,
     preprocess_misconception,
 )
@@ -19,7 +20,7 @@ from .data_processor import (
 LOGGER = logging.getLogger(__name__)
 
 
-class DataProcessor:
+class Evaluator:
     def __init__(self, cfg: DictConfig) -> None:
         for key, value in cfg.path.items():
             cfg.path[key] = Path(value)
@@ -59,14 +60,21 @@ class DataProcessor:
             df = add_prompt(df, misconception, self.cfg.llm_model.name)
             # LLMで予測
             df = llm_inference(df, self.cfg)
-            df.select(
-                ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName"]
-            ).write_csv(self.output_dir / "eval.csv")
-            df = generate_candidates(df, misconception, self.cfg)
-            LOGGER.info("second retrieval")
+            df = df.drop("PredictMisconceptionId").rename({"LLMPredictMisconceptionName": "PredictMisconceptionId"})
+            LOGGER.info("llm retrieval")
             LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
+            df = explode_candidates(df, misconception)
+            df.select(
+                [
+                    "QuestionId_Answer",
+                    "MisconceptionId",
+                    "MisconceptionName",
+                    "PredictMisconceptionId",
+                    "PredictMisconceptionName",
+                ]
+            ).write_csv(self.output_dir / "eval.csv")
         return df
 
     def run(self) -> None:
@@ -79,8 +87,8 @@ class DataProcessor:
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore
 def main(cfg: DictConfig) -> None:
-    data_processor = DataProcessor(cfg)
-    data_processor.run()
+    evaluator = Evaluator(cfg)
+    evaluator.run()
 
 
 if __name__ == "__main__":
