@@ -45,10 +45,25 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
         self.scale = scale
         self.cross_entropy_loss = nn.CrossEntropyLoss()
 
-    def forward(self, anchor_embs: torch.tensor, pos_embs: torch.tensor, neg_embs: torch.tensor) -> torch.tensor:
+    def forward(
+        self,
+        anchor_embs: torch.tensor,
+        pos_embs: torch.tensor,
+        neg_embs: torch.tensor,
+        pos_ids: torch.tensor,
+        neg_ids: torch.tensor,
+    ) -> torch.tensor:
         cand_embs = torch.cat([pos_embs, neg_embs])  # (batch*2, emb_dim)
+        ids = torch.cat([pos_ids, neg_ids])  # (batch*2)
         # scores[i][j]: i番目のanchorとj番目のcandidateのcos類似度
         scores = util.cos_sim(anchor_embs, cand_embs) * self.scale  # (batch, batch*2)
+
+        # 対角成分と一致するかどうかを判定するためのmask
+        mask = torch.eq(pos_ids.unsqueeze(1), ids.unsqueeze(0))  # (batch, batch*2)
+        # 対角成分はFalseにする
+        mask.fill_diagonal_(False)
+        # mask部分を-infにして負例として扱わないようにする
+        scores = scores.masked_fill(mask, float("-inf"))
         range_labels = torch.arange(0, scores.size(0), device=scores.device)
         return self.cross_entropy_loss(scores, range_labels)
 
@@ -62,7 +77,8 @@ class TripletCollator:
         queries = [f["AllText"] for f in features]
         positives = [f["MisconceptionName"] for f in features]
         negatives = [random.sample(f["PredictMisconceptionName"], 1)[0] for f in features]
-
+        positive_ids = [f["MisconceptionId"] for f in features]
+        negative_ids = [f["PredictMisconceptionId"] for f in features]
         # Tokenize each of the triplet components separately
         queries_encoded = self.tokenizer(
             queries, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
@@ -73,8 +89,14 @@ class TripletCollator:
         negatives_encoded = self.tokenizer(
             negatives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
-
-        return {"anchor": queries_encoded, "positive": positives_encoded, "negative": negatives_encoded}
+        device = queries_encoded["input_ids"].device
+        return {
+            "anchor": queries_encoded,
+            "positive": positives_encoded,
+            "negative": negatives_encoded,
+            "positive_id": torch.tensor(positive_ids, device=device),
+            "negative_id": torch.tensor(negative_ids, device=device),
+        }
 
 
 class TripletSimCSEModel(nn.Module):
@@ -99,14 +121,19 @@ class TripletSimCSEModel(nn.Module):
         self.model.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs)
 
     def forward(
-        self, anchor: dict[str, torch.tensor], positive: dict[str, torch.tensor], negative: dict[str, torch.tensor]
+        self,
+        anchor: dict[str, torch.tensor],
+        positive: dict[str, torch.tensor],
+        negative: dict[str, torch.tensor],
+        positive_id: list[int],
+        negative_id: list[int],
     ) -> ModelOutput:
         anchor_emb = self.encode(anchor)  # Anchor embeddings
         pos_emb = self.encode(positive)  # Positive embeddings
         neg_emb = self.encode(negative)  # Negative embeddings
 
         # Compute triplet loss
-        loss = self.criterion(anchor_emb, pos_emb, neg_emb)
+        loss = self.criterion(anchor_emb, pos_emb, neg_emb, positive_id, negative_id)
         return ModelOutput(loss=loss, anchor=anchor_emb, positive=pos_emb, negative=neg_emb)
 
 
@@ -115,7 +142,9 @@ class TripletTrainer(Trainer):
         self, model: MODEL, inputs: dict[str, torch.tensor], return_outputs: bool = False
     ) -> Union[torch.tensor, ModelOutput]:
         # Only pass anchor, positive, and negative to the model
-        outputs = model(inputs["anchor"], inputs["positive"], inputs["negative"])
+        outputs = model(
+            inputs["anchor"], inputs["positive"], inputs["negative"], inputs["positive_id"], inputs["negative_id"]
+        )
         loss = outputs["loss"]
         return (loss, outputs) if return_outputs else loss
 
@@ -150,28 +179,28 @@ class TrainPipeline:
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         # group化することでQuestionと正例のペアがバッチ内で重複しないようにする
-        df = (
-            df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
-            .group_by(
-                ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
-            )
-            .agg(pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"))
-        )
+        # df = (
+        #     df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
+        #     .group_by(
+        #         ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
+        #     )
+        #     .agg(pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"))
+        # )
         if self.cfg.debug:
-            df = df.sample(fraction=0.1, seed=self.cfg.seed)
+            df = df.sample(fraction=0.05, seed=self.cfg.seed)
 
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
 
         self.train_dataset = HFDataset.from_polars(self.train).select_columns(
             # MisconceptionNameが正例、PredictMisconceptionNameが負例。ペアを1つの入力としている
-            ["AllText", "MisconceptionName", "PredictMisconceptionName"]
+            ["AllText", "MisconceptionName", "PredictMisconceptionName", "MisconceptionId", "PredictMisconceptionId"]
         )
         if self.cfg.shuffle_dataset:
             self.train_dataset = self.train_dataset.shuffle(seed=self.cfg.seed)
 
         self.valid_dataset = HFDataset.from_polars(self.valid).select_columns(
-            ["AllText", "MisconceptionName", "PredictMisconceptionName"]
+            ["AllText", "MisconceptionName", "PredictMisconceptionName", "MisconceptionId", "PredictMisconceptionId"]
         )
 
     def setup_logger(self) -> None:
