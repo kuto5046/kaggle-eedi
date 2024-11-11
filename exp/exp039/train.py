@@ -6,6 +6,7 @@ from typing import Union
 from pathlib import Path
 
 import hydra
+import numpy as np
 import torch
 import polars as pl
 from peft import PeftModel
@@ -16,6 +17,7 @@ from omegaconf import DictConfig
 from transformers import (
     Trainer,
     PreTrainedModel,
+    TrainerCallback,
     TrainingArguments,
     PreTrainedTokenizer,
     PreTrainedTokenizerFast,
@@ -23,10 +25,11 @@ from transformers import (
 )
 from sentence_transformers import SentenceTransformer, util
 from transformers.file_utils import ModelOutput
+from sklearn.metrics.pairwise import cosine_similarity
 
 import wandb
 
-from .data_processor import calc_mapk, calc_recall, setup_qlora_model, sentence_emb_similarity_by_peft
+from .data_processor import apk, encode, calc_mapk, calc_recall, setup_qlora_model, sentence_emb_similarity_by_peft
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +39,65 @@ MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
 # seed固定用
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
+class CustomCallback(TrainerCallback):
+    def __init__(
+        self, trainer: Trainer, valid: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig
+    ) -> None:
+        super().__init__()
+        self._trainer = trainer
+        self.valid = valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
+        self.misconception_mapping = misconception_mapping
+        self.cfg = cfg
+
+    def on_evaluate(self, args, state, control, **kwargs) -> None:  # type: ignore
+        model = self._trainer.model.model
+        tokenizer = self._trainer.tokenizer
+        query_embs = encode(
+            model,
+            tokenizer,
+            self.valid["AllText"].to_list(),
+            model_name=self.cfg.retrieval_model.name,
+            batch_size=self.cfg.trainer.batch_size,
+        )
+        passage_embs = encode(
+            model,
+            tokenizer,
+            self.misconception_mapping["MisconceptionName"].to_list(),
+            model_name=self.cfg.retrieval_model.name,
+            batch_size=self.cfg.trainer.batch_size,
+        )
+        similarity = cosine_similarity(query_embs, passage_embs)
+        sorted_similarity = np.argsort(-similarity, axis=1)
+        submission = (
+            self.valid.with_columns(
+                pl.Series(sorted_similarity[:, :25].tolist()).alias("MisconceptionIdPred"),
+            )
+            .with_columns(
+                pl.col("MisconceptionIdPred")
+                .map_elements(
+                    lambda x: " ".join(map(str, x)),
+                    return_dtype=pl.String,
+                )
+                .str.split(" "),
+            )
+            .with_columns(
+                pl.col("MisconceptionId").cast(pl.Int64).cast(pl.String).str.split(" ").alias("MisconceptionIdGT"),
+            )
+            .select(
+                pl.col(["QuestionId_Answer", "MisconceptionIdGT", "MisconceptionIdPred"]),
+            )
+            .sort("QuestionId_Answer")
+        )
+
+        submission = submission.to_pandas()
+        submission["ap@25"] = submission.apply(
+            lambda x: apk(x["MisconceptionIdGT"], x["MisconceptionIdPred"], k=25),
+            axis=1,
+        )
+        LOGGER.info(f"valid map@25: {submission['ap@25'].mean()}")
+        wandb.log({"eval/map@25": submission["ap@25"].mean()})  # type: ignore
 
 
 # https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py#L12-L124
@@ -187,7 +249,7 @@ class TrainPipeline:
         #     .agg(pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"))
         # )
         if self.cfg.debug:
-            df = df.sample(fraction=0.05, seed=self.cfg.seed)
+            df = df.sample(fraction=0.01, seed=self.cfg.seed)
 
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
@@ -263,6 +325,10 @@ class TrainPipeline:
             tokenizer=tokenizer,
             data_collator=data_collator,
         )
+        trainer.add_callback(
+            CustomCallback(trainer, self.valid, self.misconception_mapping, self.cfg)
+        )  # <-- just add one line
+
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
         trainer.train()
         # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
