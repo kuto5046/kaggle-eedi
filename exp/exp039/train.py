@@ -1,6 +1,5 @@
 import gc
 import os
-import random
 import logging
 from typing import Union
 from pathlib import Path
@@ -138,7 +137,7 @@ class TripletCollator:
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
         positives = [f["MisconceptionName"] for f in features]
-        negatives = [random.sample(f["PredictMisconceptionName"], 1)[0] for f in features]
+        negatives = [f["PredictMisconceptionName"] for f in features]
         positive_ids = [f["MisconceptionId"] for f in features]
         negative_ids = [f["PredictMisconceptionId"] for f in features]
         # Tokenize each of the triplet components separately
