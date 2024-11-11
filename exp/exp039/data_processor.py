@@ -422,7 +422,7 @@ def generate_candidates(
             exp_name = retrieval_model_name.split("/")[-2]
             assert exp_name.startswith("exp")
             print(exp_name)
-            if exp_name in ["exp033", "exp035", "exp036", "exp037"]:
+            if cfg.retrieval_model.use_lora:
                 sorted_similarity = sentence_emb_similarity_by_peft(
                     df,
                     misconception_mapping,

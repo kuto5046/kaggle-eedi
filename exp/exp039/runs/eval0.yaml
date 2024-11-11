@@ -4,10 +4,15 @@ use_fold: 0
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
+  names:
+    - ${path.model_dir}/${exp_name}/${run_name}
   use_lora: true
   lora:
     r: 64
     lora_alpha: 16
+
+llm_model:
+  use: false
 
 max_candidates: 50
 
