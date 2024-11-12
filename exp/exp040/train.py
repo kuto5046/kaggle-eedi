@@ -143,7 +143,12 @@ class TripletCollator:
         positives = [f["MisconceptionName"] for f in features]
         positive_ids = [f["MisconceptionId"] for f in features]
         # (batch, 3)の負例をサンプリング
-        sampled_indices = [random.sample(range(len(features[0])), self.negative_size) for _ in range(len(features))]
+        batch_size = len(features)
+
+        sampled_indices = [
+            random.sample(range(len(features[batch_index]["PredictMisconceptionId"])), self.negative_size)
+            for batch_index in range(batch_size)
+        ]
         negatives = []
         negative_ids = []
         for batch_index, sample_indices in enumerate(sampled_indices):

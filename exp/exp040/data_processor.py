@@ -139,7 +139,8 @@ def preprocess_misconception(df: pl.DataFrame, common_cols: list[str]) -> pl.Dat
 
 
 def calc_recall(df: pl.DataFrame) -> float:
-    df2 = df.explode("PredictMisconceptionId")
+    df2 = df.with_columns(pl.col("PredictMisconceptionId").list.slice(0, 25).alias("PredictMisconceptionId"))
+    df2 = df2.explode("PredictMisconceptionId")
     return (
         df2.filter(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))["QuestionId_Answer"].n_unique()
         / df2["QuestionId_Answer"].n_unique()
