@@ -17,4 +17,5 @@ trainer:
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
-  learning_rate: 1e-5
+  learning_rate: 1e-6
+  lr_scheduler_type: cosine
