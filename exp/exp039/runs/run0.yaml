@@ -1,5 +1,5 @@
 # @package _global_
-run_name: run0_dunzhang-stella_en_1.5B_v5
+run_name: run0_dunzhang-stella_en_1.5B_v5_fix_loss
 use_fold: 0
 
 retrieval_model:

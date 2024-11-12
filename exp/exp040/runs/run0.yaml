@@ -1,5 +1,5 @@
 # @package _global_
-run_name: run0_dunzhang-stella_en_1.5B_v5
+run_name: run0_dunzhang-stella_en_1.5B_v5_multi_nega_{negative_size}_epoch_{trainer.epoch}
 use_fold: 0
 
 retrieval_model:
@@ -11,8 +11,9 @@ retrieval_model:
 
 max_candidates: 50
 
+negative_size: 3
 trainer:
-  epoch: 1
+  epoch: 10
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true

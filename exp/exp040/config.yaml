@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp039
+exp_name: exp040
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "複数のnegaを1行で扱う"
 tags: []
@@ -10,7 +10,6 @@ defaults:
   - _self_
   - path: local
 
-shuffle_dataset: false
 ##############
 # common
 ##############
@@ -28,6 +27,9 @@ feature_version: ${exp_name}
 retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
 
+################
+# model
+################
 retrieval_model:
   name: Alibaba-NLP/gte-large-en-v1.5
   # アンサンブルで利用するモデルのパス
@@ -72,6 +74,9 @@ vllm:
 #############
 # train
 #############
+negative_size: 3
+shuffle_dataset: false
+
 trainer:
   epoch: 2
   batch_size: 16

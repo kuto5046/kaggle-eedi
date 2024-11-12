@@ -115,11 +115,13 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
         pos_ids: torch.tensor,
         neg_ids: torch.tensor,
     ) -> torch.tensor:
-        cand_embs = torch.cat([pos_embs, neg_embs])  # (batch*2, emb_dim)
-        ids = torch.cat([pos_ids, neg_ids])  # (batch*2)
+        # 負例数
+        # batch_size = anchor_embs.size(0)
+        # group_size = batch_size // neg_embs.size(0)
+        cand_embs = torch.cat([pos_embs, neg_embs], dim=0)  # (batch * (1 + negative_size), emb_dim)
+        ids = torch.cat([pos_ids, neg_ids], dim=0)  # batch * (1 + negative_size)
         # scores[i][j]: i番目のanchorとj番目のcandidateのcos類似度
-        scores = util.cos_sim(anchor_embs, cand_embs) * self.scale  # (batch, batch*2)
-
+        scores = util.cos_sim(anchor_embs, cand_embs) * self.scale  # (batch, batch*(1+negative_size))
         # 対角成分と一致するかどうかを判定するためのmask
         mask = torch.eq(pos_ids.unsqueeze(1), ids.unsqueeze(0))  # (batch, batch*2)
         # 対角成分はFalseにする
@@ -131,16 +133,24 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048) -> None:
+    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048, negative_size: int = 3) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.negative_size = negative_size
 
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
         positives = [f["MisconceptionName"] for f in features]
-        negatives = [random.sample(f["PredictMisconceptionName"], 1)[0] for f in features]
         positive_ids = [f["MisconceptionId"] for f in features]
-        negative_ids = [f["PredictMisconceptionId"] for f in features]
+        # (batch, 3)の負例をサンプリング
+        sampled_indices = [random.sample(range(len(features[0])), self.negative_size) for _ in range(len(features))]
+        negatives = []
+        negative_ids = []
+        for batch_index, sample_indices in enumerate(sampled_indices):
+            for sample_index in sample_indices:
+                negatives.append(features[batch_index]["PredictMisconceptionName"][sample_index])
+                negative_ids.append(features[batch_index]["PredictMisconceptionId"][sample_index])
+
         # Tokenize each of the triplet components separately
         queries_encoded = self.tokenizer(
             queries, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
@@ -155,9 +165,9 @@ class TripletCollator:
         return {
             "anchor": queries_encoded,
             "positive": positives_encoded,
-            "negative": negatives_encoded,
+            "negative": negatives_encoded,  # (batch_size * 3, length)
             "positive_id": torch.tensor(positive_ids, device=device),
-            "negative_id": torch.tensor(negative_ids, device=device),
+            "negative_id": torch.tensor(negative_ids, device=device),  # batch_size * 3
         }
 
 
@@ -241,15 +251,20 @@ class TrainPipeline:
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         # group化することでQuestionと正例のペアがバッチ内で重複しないようにする
-        # df = (
-        #     df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
-        #     .group_by(
-        #         ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
-        #     )
-        #     .agg(pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"))
-        # )
+        df = (
+            df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
+            .group_by(
+                ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
+            )
+            .agg(
+                [
+                    pl.col("PredictMisconceptionName").alias("PredictMisconceptionName"),
+                    pl.col("PredictMisconceptionId").alias("PredictMisconceptionId"),
+                ]
+            )
+        )
         if self.cfg.debug:
-            df = df.sample(fraction=0.01, seed=self.cfg.seed)
+            df = df.sample(fraction=0.1, seed=self.cfg.seed)
 
         self.train = df.filter(pl.col("fold") != self.cfg.use_fold)
         self.valid = df.filter(pl.col("fold") == self.cfg.use_fold)
@@ -280,7 +295,7 @@ class TrainPipeline:
         lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
         model = TripletSimCSEModel(lora_model, self.cfg)
 
-        data_collator = TripletCollator(tokenizer)
+        data_collator = TripletCollator(tokenizer, negative_size=self.cfg.negative_size)
 
         params = self.cfg.trainer
         args = TrainingArguments(
