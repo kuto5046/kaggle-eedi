@@ -226,7 +226,7 @@ def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.Dat
     return get_fold(train, cv)
 
 
-def setup_qlora_model(cfg: DictConfig, pretrained_lora_path: Optional[str | Path]) -> tuple[PeftModel, TOKENIZER]:
+def setup_quantized_model(cfg: DictConfig) -> tuple[MODEL, TOKENIZER]:
     # 量子化したモデルを読み込む
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
@@ -242,6 +242,12 @@ def setup_qlora_model(cfg: DictConfig, pretrained_lora_path: Optional[str | Path
         trust_remote_code=True,
     )
     tokenizer = AutoTokenizer.from_pretrained(cfg.retrieval_model.name)
+    return base_model, tokenizer
+
+
+def setup_qlora_model(
+    base_model: MODEL, cfg: DictConfig, pretrained_lora_path: Optional[str | Path]
+) -> tuple[PeftModel, TOKENIZER]:
     if pretrained_lora_path is None:
         # LoRAアダプタを追加
         lora_config = LoraConfig(
@@ -262,7 +268,7 @@ def setup_qlora_model(cfg: DictConfig, pretrained_lora_path: Optional[str | Path
         lora_model.print_trainable_parameters()
     else:
         lora_model = PeftModel.from_pretrained(base_model, str(pretrained_lora_path))
-    return lora_model, tokenizer
+    return lora_model
 
 
 def sentence_emb_similarity_by_sentence_transformers(
@@ -288,7 +294,8 @@ def sentence_emb_similarity_by_peft(
     cfg: DictConfig,
     pretrained_lora_path: Optional[str | Path],
 ) -> np.ndarray:
-    model, tokenizer = setup_qlora_model(cfg, pretrained_lora_path)
+    base_model, tokenizer = setup_quantized_model(cfg)
+    model = setup_qlora_model(base_model, cfg, pretrained_lora_path)
     query_embs = encode(
         model,
         tokenizer,
@@ -507,7 +514,7 @@ class DataProcessor:
         unseen_valid_size = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconceotion_ids)).shape[0]
         unseen_rate = unseen_valid_size / valid.shape[0]
         LOGGER.info(f"unseen_rate: {unseen_rate=:.5f}")
-        return all_df.sort("QuestionId_Answer")
+        return all_df.drop("index").sort("QuestionId_Answer")
 
     def run(self) -> None:
         input_df, misconception = self.read_data()

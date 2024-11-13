@@ -1,6 +1,7 @@
 import gc
 import os
 import random
+import shutil
 import logging
 from typing import Union
 from pathlib import Path
@@ -29,7 +30,15 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 import wandb
 
-from .data_processor import apk, encode, calc_mapk, calc_recall, setup_qlora_model, sentence_emb_similarity_by_peft
+from .data_processor import (
+    apk,
+    encode,
+    calc_mapk,
+    calc_recall,
+    setup_qlora_model,
+    setup_quantized_model,
+    sentence_emb_similarity_by_peft,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -297,7 +306,8 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        lora_model, tokenizer = setup_qlora_model(self.cfg, pretrained_lora_path=None)
+        base_model, tokenizer = setup_quantized_model(self.cfg)
+        lora_model = setup_qlora_model(base_model, self.cfg, pretrained_lora_path=None)
         model = TripletSimCSEModel(lora_model, self.cfg)
 
         data_collator = TripletCollator(tokenizer, negative_size=self.cfg.negative_size)
@@ -351,12 +361,14 @@ class TrainPipeline:
 
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
         trainer.train()
-        # checkpointを削除してbest modelを保存(save_strategyを有効にしていないとload_best_model_at_endが効かない)
-        # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
-        #     shutil.rmtree(ckpt_dir)
-        # LoRAモデルを保存
-        model.model.save_pretrained(str(self.output_dir))
 
+        # checkpointにあるbest modelを読み込む
+        best_lora_model = PeftModel.from_pretrained(base_model, str(self.output_dir))
+        # LoRAモデルを保存
+        best_lora_model.save_pretrained(str(self.output_dir))
+        # best modelを保存してcheckpointを削除
+        for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
+            shutil.rmtree(ckpt_dir)
         del model, trainer, lora_model
         gc.collect()
         torch.cuda.empty_cache()
