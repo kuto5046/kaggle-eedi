@@ -7,7 +7,7 @@ retrieval_model:
   use_lora: true
   lora:
     r: 64
-    lora_alpha: 512
+    lora_alpha: 32
 
 max_candidates: 50
 

@@ -489,7 +489,25 @@ class DataProcessor:
         return df, misconception_mapping
 
     def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
-        return get_groupkfold(df, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
+        tmp = df.with_row_index()
+        df1 = tmp.sample(fraction=self.cfg.split_rate)
+        df2 = tmp.filter(~pl.col("index").is_in(df1["index"]))
+        df1 = get_groupkfold(df1, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
+        if len(df2) > 0:
+            df2 = get_groupkfold(df2, group_col="QuestionId", n_splits=self.cfg.n_splits)
+            all_df = pl.concat([df1, df2])
+        else:
+            all_df = df1
+        train = all_df.filter(pl.col("fold") != 0)
+        valid = all_df.filter(pl.col("fold") == 0)
+
+        train_misconception_ids = train["MisconceptionId"].to_list()
+        valid_misconception_ids = valid["MisconceptionId"].to_list()
+        unseen_misconceotion_ids = list(set(valid_misconception_ids) - set(train_misconception_ids))
+        unseen_valid_size = valid.filter(pl.col("MisconceptionId").is_in(unseen_misconceotion_ids)).shape[0]
+        unseen_rate = unseen_valid_size / valid.shape[0]
+        LOGGER.info(f"unseen_rate: {unseen_rate=:.5f}")
+        return all_df.sort("QuestionId_Answer")
 
     def run(self) -> None:
         input_df, misconception = self.read_data()
