@@ -1,7 +1,6 @@
 import gc
 import os
 import random
-import shutil
 import logging
 from typing import Union
 from pathlib import Path
@@ -59,6 +58,7 @@ class CustomCallback(TrainerCallback):
         self.valid = valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
         self.misconception_mapping = misconception_mapping
         self.cfg = cfg
+        self.best_score = 0.0
 
     def on_evaluate(self, args, state, control, **kwargs) -> None:  # type: ignore
         model = self._trainer.model.model
@@ -105,8 +105,15 @@ class CustomCallback(TrainerCallback):
             lambda x: apk(x["MisconceptionIdGT"], x["MisconceptionIdPred"], k=25),
             axis=1,
         )
-        LOGGER.info(f"valid map@25: {submission['ap@25'].mean()}")
-        wandb.log({"eval/map@25": submission["ap@25"].mean()})  # type: ignore
+        mapk_score = submission["ap@25"].mean()
+        LOGGER.info(f"valid map@25: {mapk_score:.5f}")
+        wandb.log({"eval/map@25": mapk_score})  # type: ignore
+
+        if mapk_score > self.best_score:
+            self.best_score = mapk_score
+            # adaptorを保存する
+            model.save_pretrained(self._trainer.args.output_dir)
+            LOGGER.info(f"Best model saved at {self._trainer.args.output_dir}")
 
 
 # https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py#L12-L124
@@ -233,6 +240,9 @@ class TripletTrainer(Trainer):
         )
         loss = outputs["loss"]
         return (loss, outputs) if return_outputs else loss
+
+    # def save_model(self, output_dir: Optional[str] = None, _internal_call: bool = False) -> None:
+    #     self.model.model.save_pretrained(output_dir)
 
 
 class TrainPipeline:
@@ -362,13 +372,8 @@ class TrainPipeline:
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
         trainer.train()
 
-        # checkpointにあるbest modelを読み込む
-        best_lora_model = PeftModel.from_pretrained(base_model, str(self.output_dir))
-        # LoRAモデルを保存
-        best_lora_model.save_pretrained(str(self.output_dir))
-        # best modelを保存してcheckpointを削除
-        for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
-            shutil.rmtree(ckpt_dir)
+        # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
+        #     shutil.rmtree(ckpt_dir)
         del model, trainer, lora_model
         gc.collect()
         torch.cuda.empty_cache()

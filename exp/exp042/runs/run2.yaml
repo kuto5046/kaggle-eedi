@@ -1,5 +1,5 @@
 # @package _global_
-run_name: run0
+run_name: run2
 use_fold: 0
 
 retrieval_model:
@@ -10,7 +10,7 @@ retrieval_model:
     lora_alpha: 32
 
 max_candidates: 50
-split_rate: 0.8
+split_rate: 0.9
 negative_size: 10
 trainer:
   epoch: 10

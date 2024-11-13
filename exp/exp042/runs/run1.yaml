@@ -1,5 +1,5 @@
 # @package _global_
-run_name: run0
+run_name: run1
 use_fold: 0
 
 retrieval_model:
@@ -7,7 +7,7 @@ retrieval_model:
   use_lora: true
   lora:
     r: 64
-    lora_alpha: 32
+    lora_alpha: 64
 
 max_candidates: 50
 split_rate: 0.8
