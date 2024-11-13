@@ -30,6 +30,8 @@ TARGET_EXP_RUN_NAMES = [
     # "exp030",
     # "exp037/run9_dunzhang-stella_en_1.5B_v5_epoch20_top50_alpha512",
     # "exp037/run3_dunzhang-stella_en_1.5B_v5_epoch20_top100",
+    # "exp040/run13_dunzhang-stella_en_1.5B_v5_multinega10_epoch10_candidate50_lora_alpha512_lr8e-06",
+    "exp040/run13",
 ]
 
 
