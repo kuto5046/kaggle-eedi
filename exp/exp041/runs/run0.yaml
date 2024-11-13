@@ -1,0 +1,19 @@
+# @package _global_
+run_name: run0_dunzhang-stella_en_1.5B_v5_multinega${negative_size}_epoch${trainer.epoch}
+use_fold: 0
+
+retrieval_model:
+  name: dunzhang/stella_en_1.5B_v5
+  use_lora: true
+  lora:
+    r: 64
+    lora_alpha: 16
+
+max_candidates: 50
+
+negative_size: 3
+trainer:
+  epoch: 10
+  batch_size: 64
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
