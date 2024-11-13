@@ -489,7 +489,7 @@ class DataProcessor:
         return df, misconception_mapping
 
     def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
-        return get_groupkfold(df, group_col="QuestionId", n_splits=self.cfg.n_splits)
+        return get_groupkfold(df, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
 
     def run(self) -> None:
         input_df, misconception = self.read_data()
