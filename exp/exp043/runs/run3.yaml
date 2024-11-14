@@ -1,6 +1,6 @@
 # @package _global_
-run_name: run0
-notes: "lora_alpha=128"
+run_name: run3
+notes: "lora_alpha=64 candidate=100"
 use_fold: 0
 
 retrieval_model:
@@ -8,9 +8,9 @@ retrieval_model:
   use_lora: true
   lora:
     r: 64
-    lora_alpha: 128
+    lora_alpha: 64
 
-max_candidates: 50
+max_candidates: 100
 negative_size: 10
 trainer:
   epoch: 10

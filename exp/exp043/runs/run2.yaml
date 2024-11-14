@@ -1,6 +1,6 @@
 # @package _global_
-run_name: run0
-notes: "lora_alpha=128"
+run_name: run2
+notes: "lora_alpha=512"
 use_fold: 0
 
 retrieval_model:
@@ -8,7 +8,7 @@ retrieval_model:
   use_lora: true
   lora:
     r: 64
-    lora_alpha: 128
+    lora_alpha: 512
 
 max_candidates: 50
 negative_size: 10
