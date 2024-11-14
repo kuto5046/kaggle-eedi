@@ -531,12 +531,12 @@ class DataProcessor:
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
-            # # 学習用の候補を生成する
-            # df = generate_candidates(df, misconception, self.cfg)
-            # LOGGER.info(f"recall: {calc_recall(df):.5f}")
-            # LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
-            # df = explode_candidates(df, misconception)
-            # df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
+            # 学習用の候補を生成する
+            df = generate_candidates(df, misconception, self.cfg)
+            LOGGER.info(f"recall: {calc_recall(df):.5f}")
+            LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
+            df = explode_candidates(df, misconception)
+            df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
         else:
             df = generate_candidates(df, misconception, self.cfg)
             df = explode_candidates(df, misconception)
