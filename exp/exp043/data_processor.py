@@ -26,7 +26,7 @@ from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import GroupKFold, StratifiedKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 LOGGER = logging.getLogger(__name__)
