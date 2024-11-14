@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp042
+exp_name: exp043
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "misconceptionとquestionでgroupkfold"
+notes: "misconceptionをgroupkfoldとstratifiedkfoldで分割して学習する"
 tags: []
 
 defaults:
@@ -26,7 +26,7 @@ use_fold: 0
 feature_version: ${exp_name}
 retrieve_num: 25
 max_candidates: 25  # 1つの学習データに紐づける負例の候補数
-split_rate: 0.8
+split_rate: 0.9
 
 ################
 # model

@@ -23,7 +23,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from sentence_transformers import SentenceTransformer
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, StratifiedKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -223,6 +223,12 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
 def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.DataFrame:
     kf = GroupKFold(n_splits=n_splits)
     cv = list(kf.split(X=train, groups=train[group_col].to_numpy()))
+    return get_fold(train, cv)
+
+
+def get_stratifiedkfold(train: pl.DataFrame, target_col: str, n_splits: int, seed: int) -> pl.DataFrame:
+    kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    cv = list(kf.split(X=train, y=train[target_col].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -501,7 +507,7 @@ class DataProcessor:
         df2 = tmp.filter(~pl.col("index").is_in(df1["index"]))
         df1 = get_groupkfold(df1, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
         if len(df2) > 0:
-            df2 = get_groupkfold(df2, group_col="QuestionId", n_splits=self.cfg.n_splits)
+            df2 = get_stratifiedkfold(df2, target_col="MisconceptionId", n_splits=self.cfg.n_splits, seed=self.cfg.seed)
             all_df = pl.concat([df1, df2])
         else:
             all_df = df1
@@ -525,12 +531,12 @@ class DataProcessor:
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
-            # 学習用の候補を生成する
-            df = generate_candidates(df, misconception, self.cfg)
-            LOGGER.info(f"recall: {calc_recall(df):.5f}")
-            LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
-            df = explode_candidates(df, misconception)
-            df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
+            # # 学習用の候補を生成する
+            # df = generate_candidates(df, misconception, self.cfg)
+            # LOGGER.info(f"recall: {calc_recall(df):.5f}")
+            # LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
+            # df = explode_candidates(df, misconception)
+            # df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
         else:
             df = generate_candidates(df, misconception, self.cfg)
             df = explode_candidates(df, misconception)
