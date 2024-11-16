@@ -154,6 +154,18 @@ class TripletCollator:
         self.max_length = max_length
         self.negative_size = negative_size
 
+    def mask_pad_token(self, q: dict[str, torch.tensor], thr: float = 0.9) -> dict[str, torch.tensor]:
+        if random.random() > thr:
+            tensor = q["input_ids"].float()
+            mask = torch.rand(tensor.shape)
+
+            mask = (mask > thr).float()
+
+            tensor = tensor * (1 - mask) + 2 * mask
+            tensor = tensor.long()
+            q["input_ids"] = tensor
+        return q
+
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
         positives = [f["MisconceptionName"] for f in features]
@@ -184,9 +196,9 @@ class TripletCollator:
         )
         device = queries_encoded["input_ids"].device
         return {
-            "anchor": queries_encoded,
-            "positive": positives_encoded,
-            "negative": negatives_encoded,  # (batch_size * 3, length)
+            "anchor": self.mask_pad_token(queries_encoded),
+            "positive": self.mask_pad_token(positives_encoded),
+            "negative": self.mask_pad_token(negatives_encoded),  # (batch_size * 3, length)
             "positive_id": torch.tensor(positive_ids, device=device),
             "negative_id": torch.tensor(negative_ids, device=device),  # batch_size * 3
         }

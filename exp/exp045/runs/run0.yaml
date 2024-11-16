@@ -1,14 +1,11 @@
 # @package _global_
 run_name: run0
-notes: "lora_alpha=128"
-use_fold: 0
+notes: "mask pad tokenで過学習防ぐ"
+
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   use_lora: true
-  lora:
-    r: 64
-    lora_alpha: 128
 
 max_candidates: 50
 negative_size: 10
@@ -17,4 +14,4 @@ trainer:
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
-  learning_rate: 8e-6
+  learning_rate: 5e-6
