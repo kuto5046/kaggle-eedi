@@ -1,0 +1,19 @@
+# @package _global_
+run_name: run10
+notes: "bestであるnegativesize=1, max_candidates=100でlrを小さく&dropoutして過学習を抑制する"
+use_fold: 0
+
+retrieval_model:
+  name: dunzhang/stella_en_1.5B_v5
+  use_lora: true
+  lora:
+    lora_dropout: 0.2
+
+negative_size: 1
+max_candidates: 100  # 1つの学習データに紐づける負例の候補数
+trainer:
+  epoch: 10
+  batch_size: 64
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  learning_rate: 2e-5
