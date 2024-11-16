@@ -25,7 +25,7 @@ use_fold: 0
 ################
 feature_version: ${exp_name}
 retrieve_num: 25
-max_candidates: 50  # 1つの学習データに紐づける負例の候補数
+max_candidates: 100  # 1つの学習データに紐づける負例の候補数
 split_rate: 0.9
 
 ################
@@ -77,13 +77,14 @@ vllm:
 #############
 negative_size: 1
 shuffle_dataset: false
+use_mask_pad_token: false
 
 trainer:
   epoch: 2
   batch_size: 16
   gradient_accumulation_steps: 32  # 128 // batch_size
   gradient_checkpointing: true
-  learning_rate: 2e-5
+  learning_rate: 8e-6
   weight_decay: 0.1
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
