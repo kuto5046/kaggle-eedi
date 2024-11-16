@@ -75,7 +75,7 @@ vllm:
 #############
 # train
 #############
-negative_size: 10
+negative_size: 1
 shuffle_dataset: false
 
 trainer:

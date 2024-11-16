@@ -77,6 +77,7 @@ vllm:
 #############
 negative_size: 10
 shuffle_dataset: false
+use_mask_pad_token: false
 
 trainer:
   epoch: 2
