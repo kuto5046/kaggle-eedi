@@ -149,10 +149,25 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048, negative_size: int = 3) -> None:
+    def __init__(
+        self, tokenizer: TOKENIZER, max_length: int = 2048, negative_size: int = 3, use_mask_pad_token: bool = False
+    ) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.negative_size = negative_size
+        self.use_mask_pad_token = use_mask_pad_token
+
+    def mask_pad_token(self, q: dict[str, torch.tensor], thr: float = 0.9) -> dict[str, torch.tensor]:
+        if random.random() > thr:
+            tensor = q["input_ids"].float()
+            mask = torch.rand(tensor.shape)
+
+            mask = (mask > thr).float()
+
+            tensor = tensor * (1 - mask) + 2 * mask
+            tensor = tensor.long()
+            q["input_ids"] = tensor
+        return q
 
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
@@ -183,6 +198,12 @@ class TripletCollator:
             negatives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
         device = queries_encoded["input_ids"].device
+
+        if self.use_mask_pad_token:
+            queries_encoded = self.mask_pad_token(queries_encoded)
+            positives_encoded = self.mask_pad_token(positives_encoded)
+            negatives_encoded = self.mask_pad_token(negatives_encoded)
+
         return {
             "anchor": queries_encoded,
             "positive": positives_encoded,
@@ -320,7 +341,9 @@ class TrainPipeline:
         lora_model = setup_qlora_model(base_model, self.cfg, pretrained_lora_path=None)
         model = TripletSimCSEModel(lora_model, self.cfg)
 
-        data_collator = TripletCollator(tokenizer, negative_size=self.cfg.negative_size)
+        data_collator = TripletCollator(
+            tokenizer, negative_size=self.cfg.negative_size, use_mask_pad_token=self.cfg.use_mask_pad_token
+        )
 
         params = self.cfg.trainer
         args = TrainingArguments(

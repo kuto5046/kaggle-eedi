@@ -1,14 +1,17 @@
 # @package _global_
-run_name: run${use_fold}
+run_name: run5
+notes: "negativesize=1にしてmax_candidateを探索"
 use_fold: 0
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   use_lora: true
 
+negative_size: 1
+max_candidates: 100  # 1つの学習データに紐づける負例の候補数
 trainer:
   epoch: 10
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
-  learning_rate: 8e-6
+  learning_rate: 8e-5
