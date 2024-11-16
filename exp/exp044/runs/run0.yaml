@@ -1,20 +1,20 @@
 # @package _global_
 run_name: run0
-notes: "lora_alpha=128"
+notes: "nvidia modelを試す"
 use_fold: 0
 
 retrieval_model:
-  name: dunzhang/stella_en_1.5B_v5
+  name: nvidia/NV-Embed-v2
   use_lora: true
   lora:
     r: 64
-    lora_alpha: 128
+    lora_alpha: 256
 
 max_candidates: 50
 negative_size: 10
 trainer:
-  epoch: 10
-  batch_size: 64
+  epoch: 2
+  batch_size: 2
   gradient_accumulation_steps: 1
-  gradient_checkpointing: true
+  gradient_checkpointing: false
   learning_rate: 8e-6

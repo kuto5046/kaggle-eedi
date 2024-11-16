@@ -1,5 +1,6 @@
 # @package _global_
 run_name: run3
+notes: "batch size=128"
 use_fold: 0
 
 retrieval_model:
@@ -9,7 +10,7 @@ retrieval_model:
 negative_size: 10
 trainer:
   epoch: 10
-  batch_size: 64
+  batch_size: 128
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
   learning_rate: 8e-6
