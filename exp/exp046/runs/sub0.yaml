@@ -1,6 +1,5 @@
 # @package _global_
-run_name: run${use_fold}
-use_fold: 0
+run_name: sub0
 
 max_candidates: ${retrieve_num}
 retrieval_model:
@@ -18,9 +17,3 @@ retrieval_model:
     - 1
     - 1
   use_lora: true
-
-trainer:
-  epoch: 10
-  batch_size: 64
-  gradient_accumulation_steps: 1
-  gradient_checkpointing: true

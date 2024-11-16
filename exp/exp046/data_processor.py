@@ -462,7 +462,7 @@ def generate_candidates(
 
 
 # https://www.kaggle.com/code/titericz/h-m-ensembling-how-to
-def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = None, top_k: int = 25) -> np.ndarray:
+def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = None, top_k: int = 30) -> np.ndarray:
     if weights is None:
         weights = [1] * len(preds)
 
@@ -480,7 +480,7 @@ def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = 
                     scores[pred_misconception_id] = w / (k + 1)
         # Sort dictionary by item weights
         result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())  # [:top_k]
-        blend_results.append(result)
+        blend_results.append(result[:top_k])
     return np.array(blend_results)
 
 
