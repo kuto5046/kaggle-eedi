@@ -1,20 +1,14 @@
 # @package _global_
-run_name: run4
-notes: "run1にlr=5e-5して過学習を抑制する"
-use_fold: 0
+run_name: run{use_fold}
+use_fold: 4
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   use_lora: true
-  lora:
-    r: 64
-    lora_alpha: 256
 
-max_candidates: 50
-negative_size: 10
 trainer:
   epoch: 10
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
-  learning_rate: 5e-6
+  learning_rate: 8e-6

@@ -1,17 +1,11 @@
 # @package _global_
-run_name: run2
-notes: "lora_alpha=512"
-use_fold: 0
+run_name: run{use_fold}
+use_fold: 2
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   use_lora: true
-  lora:
-    r: 64
-    lora_alpha: 512
 
-max_candidates: 50
-negative_size: 10
 trainer:
   epoch: 10
   batch_size: 64
