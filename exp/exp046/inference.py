@@ -30,24 +30,18 @@ def preprocess_text(x: str) -> str:
 
 def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
     prompt = """
-Below is a mathematics question on {ConstructName} ({SubjectName}):
-
+Here is a question about {ConstructName}({SubjectName}).
 Question: {Question}
 Correct Answer: {CorrectAnswer}
-Student's Incorrect Answer: {IncorrectAnswer}
+Incorrect Answer: {IncorrectAnswer}
 
-As a mathematics teacher, your task is to:
-
-- Analyze the student's incorrect answer.
-- Rank the given possible misconceptions from most likely to least likely based on how they could have led to the student's error.
-- Provide the ranked list without additional explanations.
-- Do not include the reasoning process or start with phrases like "The misconceptions are."
-
-Here are the possible misconceptions to consider:
+You are a Mathematics teacher.
+Your task is to reason and identify the misconception behind the Incorrect Answer with the Question in English.
+Answer concisely what misconception it is to lead to getting the incorrect answer.
+No need to give the reasoning process and do not use "The misconception is" to start your answers.
+There are some relative and possible misconceptions below to help you make the decision:
 
 {Retrieval}
-
-Based on the above information, please rank the misconceptions in order of likelihood that caused the student's error.
 """
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     texts = [
@@ -95,7 +89,10 @@ def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, 
 
 
 def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    llm = vllm.LLM(**cfg.vllm.model)
+    if cfg.llm_model.name in ["Qwen/Qwen2.5-Math-7B-Instruct"]:
+        llm = vllm.LLM(**cfg.vllm.model)
+    else:
+        llm = vllm.LLM(**cfg.vllm.model)
     # tokenizer = llm.get_tokenizer()
     sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
     full_responses = llm.generate(

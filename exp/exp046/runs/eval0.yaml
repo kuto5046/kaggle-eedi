@@ -1,6 +1,5 @@
 # @package _global_
-run_name: run3
-notes: "lora_alpha=256 candidate=100"
+run_name: run${use_fold}
 use_fold: 0
 
 retrieval_model:
@@ -8,15 +7,9 @@ retrieval_model:
   names:
     - ${path.model_dir}/${exp_name}/${run_name}
   use_lora: true
-  lora:
-    r: 64
-    lora_alpha: 256
 
-max_candidates: 100
-negative_size: 10
 trainer:
-  epoch: 5
+  epoch: 10
   batch_size: 64
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
-  learning_rate: 8e-6
