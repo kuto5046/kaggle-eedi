@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp046
+exp_name: exp047
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "bestで5fold作成"
+notes: "negativesizeを再度探索"
 tags: []
 
 defaults:

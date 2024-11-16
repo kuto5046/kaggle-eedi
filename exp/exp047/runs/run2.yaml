@@ -1,11 +1,13 @@
 # @package _global_
-run_name: run{use_fold}
-use_fold: 2
+run_name: run2
+notes: "negativesizeを再度探索 5"
+use_fold: 0
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   use_lora: true
 
+negative_size: 5
 trainer:
   epoch: 10
   batch_size: 64
