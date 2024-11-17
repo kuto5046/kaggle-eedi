@@ -200,7 +200,7 @@ class TrainPipeline:
             data_collator=data_collator,
         )
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
-        # trainer.train()
+        trainer.train()
 
         for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
             shutil.rmtree(ckpt_dir)
