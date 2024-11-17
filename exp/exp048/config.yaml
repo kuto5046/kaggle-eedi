@@ -39,7 +39,7 @@ retrieval_model:
     - ${retrieval_model.name}
   weights:
     - 1.0
-  use_lora: false
+  use_lora: true
   lora:
     r: 64
     lora_alpha: 256
