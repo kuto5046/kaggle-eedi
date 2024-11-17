@@ -150,19 +150,25 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
 
 class TripletCollator:
     def __init__(
-        self, tokenizer: TOKENIZER, max_length: int = 2048, negative_size: int = 3, use_mask_pad_token: bool = False
+        self,
+        tokenizer: TOKENIZER,
+        max_length: int = 2048,
+        negative_size: int = 3,
+        use_mask_pad_token: bool = False,
+        mask_rate: float = 0.9,
     ) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.negative_size = negative_size
         self.use_mask_pad_token = use_mask_pad_token
+        self.mask_rate = mask_rate
 
-    def mask_pad_token(self, q: dict[str, torch.tensor], thr: float = 0.9) -> dict[str, torch.tensor]:
-        if random.random() > thr:
+    def mask_pad_token(self, q: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
+        if random.random() > self.mask_rate:
             tensor = q["input_ids"].float()
             mask = torch.rand(tensor.shape)
 
-            mask = (mask > thr).float()
+            mask = (mask > self.mask_rate).float()
 
             tensor = tensor * (1 - mask) + 2 * mask
             tensor = tensor.long()
@@ -342,7 +348,10 @@ class TrainPipeline:
         model = TripletSimCSEModel(lora_model, self.cfg)
 
         data_collator = TripletCollator(
-            tokenizer, negative_size=self.cfg.negative_size, use_mask_pad_token=self.cfg.use_mask_pad_token
+            tokenizer,
+            negative_size=self.cfg.negative_size,
+            use_mask_pad_token=self.cfg.use_mask_pad_token,
+            mask_rate=self.cfg.mask_rate,
         )
 
         params = self.cfg.trainer

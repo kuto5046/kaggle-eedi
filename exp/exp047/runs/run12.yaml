@@ -1,0 +1,20 @@
+# @package _global_
+run_name: run12
+notes: "bestであるnegativesize=1, max_candidates=100,lr=5e-5(run7)に強めのpad tokenで過学習を抑制する"
+use_fold: 0
+
+retrieval_model:
+  name: dunzhang/stella_en_1.5B_v5
+  use_lora: true
+
+negative_size: 1
+max_candidates: 100  # 1つの学習データに紐づける負例の候補数
+use_mask_pad_token: true
+mask_rate: 0.7
+
+trainer:
+  epoch: 5
+  batch_size: 64
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true
+  learning_rate: 5e-5

@@ -78,7 +78,7 @@ vllm:
 negative_size: 10
 shuffle_dataset: false
 use_mask_pad_token: false
-
+mask_rate: 0.9
 trainer:
   epoch: 2
   batch_size: 16
