@@ -2,12 +2,16 @@
 run_name: run0
 use_fold: 0
 
-retrieval_model:
-  name: dunzhang/stella_en_1.5B_v5
-  use_lora: true
+llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  use: true
+  lora:
+    r: 64
+    lora_alpha: 256
+    lora_dropout: 0.05
 
 trainer:
   epoch: 1
-  batch_size: 1
+  batch_size: 2
   gradient_accumulation_steps: 16
   gradient_checkpointing: true
