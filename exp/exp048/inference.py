@@ -9,6 +9,7 @@ import torch
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
+from vllm.lora.request import LoRARequest
 
 from .data_processor import add_prompt, generate_candidates
 
@@ -25,7 +26,7 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     full_responses = llm.generate(
         prompts=df["Prompt"].to_numpy(),
         sampling_params=sampling_params,
-        # lora_request=LoRARequest("adapter", 1, self.output_dir),
+        lora_request=LoRARequest("adapter", 1, cfg.vllm.lora_path) if cfg.vllm.model.enable_lora else None,
         use_tqdm=True,
     )
 

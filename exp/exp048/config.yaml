@@ -55,6 +55,7 @@ llm_model:
 
 # 推論用vllm
 vllm:
+  lora_path: ${path.model_dir}/${exp_name}/${run_name}
   model:
     model: ${llm_model.name}
     quantization: awq

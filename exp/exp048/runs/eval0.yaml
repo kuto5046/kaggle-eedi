@@ -1,23 +1,18 @@
 # @package _global_
-run_name: run${use_fold}
+run_name: run0
 use_fold: 0
 
 max_candidates: ${retrieve_num}
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   names:
-    - ${path.model_dir}/${exp_name}/run0
-    # - ${path.model_dir}/${exp_name}/run1
-    # - ${path.model_dir}/${exp_name}/run2
-    # - ${path.model_dir}/${exp_name}/run3
-    # - ${path.model_dir}/${exp_name}/run4
+    - ${path.model_dir}/exp046/run0
   weights:
-    - 1
-    - 1
-    - 1
-    - 1
     - 1
   use_lora: true
 
 llm_model:
   use: true
+
+vllm:
+  lora_path: ${path.model_dir}/${exp_name}/${run_name}

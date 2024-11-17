@@ -12,9 +12,10 @@ from .data_processor import (
     calc_recall,
     get_groupkfold,
     preprocess_table,
-    generate_candidates,
+    # generate_candidates,
     get_stratifiedkfold,
     preprocess_misconception,
+    sentence_emb_similarity_by_peft,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -69,7 +70,18 @@ class Evaluator:
         return all_df.drop("index").sort("QuestionId_Answer")
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
-        df = generate_candidates(df, misconception, self.cfg)
+        sorted_similarity = sentence_emb_similarity_by_peft(
+            df,
+            misconception,
+            self.cfg.retrieval_model.name,
+            self.cfg.retrieval_model.lora,
+            self.cfg.trainer.batch_size,
+            pretrained_lora_path=Path(self.cfg.retrieval_model.pretrained_path) / f"run{self.cfg.use_fold}",
+        )
+        df = df.with_columns(
+            pl.Series(sorted_similarity[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
+        )
+
         LOGGER.info("first retrieval")
         LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
         LOGGER.info(f"recall: {calc_recall(df):.5f}")
@@ -81,7 +93,19 @@ class Evaluator:
             df.select(
                 ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName", "Prompt"]
             ).write_csv(self.output_dir / "eval.csv")
-            df = generate_candidates(df, misconception, self.cfg)
+            # df = generate_candidates(df, misconception, self.cfg)
+            sorted_similarity = sentence_emb_similarity_by_peft(
+                df,
+                misconception,
+                self.cfg.retrieval_model.name,
+                self.cfg.retrieval_model.lora,
+                self.cfg.trainer.batch_size,
+                pretrained_lora_path=Path(self.cfg.retrieval_model.pretrained_path) / f"run{self.cfg.use_fold}",
+            )
+            df = df.with_columns(
+                pl.Series(sorted_similarity[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
+            )
+
             LOGGER.info("second retrieval")
             LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
