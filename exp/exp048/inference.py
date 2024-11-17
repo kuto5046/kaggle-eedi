@@ -1,5 +1,4 @@
 import gc
-import re
 import logging
 from pathlib import Path
 from collections import defaultdict
@@ -10,82 +9,10 @@ import torch
 import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
-from transformers import AutoTokenizer
 
-from .data_processor import generate_candidates
+from .data_processor import add_prompt, generate_candidates
 
 LOGGER = logging.getLogger(__name__)
-
-
-def preprocess_text(x: str) -> str:
-    x = re.sub(r"http\w+", "", x)  # Delete URL
-    x = re.sub(r"\.+", ".", x)  # Replace consecutive commas and periods with one comma and period character
-    x = re.sub(r"\,+", ",", x)
-    x = re.sub(r"\\\(", " ", x)
-    x = re.sub(r"\\\)", " ", x)
-    x = re.sub(r"[ ]{1,}", " ", x)
-    x = x.strip()  # Remove empty characters at the beginning and end
-    return x
-
-
-def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
-    prompt = """
-Here is a question about {ConstructName}({SubjectName}).
-Question: {Question}
-Correct Answer: {CorrectAnswer}
-Incorrect Answer: {IncorrectAnswer}
-
-You are a Mathematics teacher.
-Your task is to reason and identify the misconception behind the Incorrect Answer with the Question in English.
-Answer concisely what misconception it is to lead to getting the incorrect answer.
-No need to give the reasoning process and do not use "The misconception is" to start your answers.
-There are some relative and possible misconceptions below to help you make the decision:
-
-{Retrieval}
-"""
-    id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
-    texts = [
-        preprocess_text(
-            prompt.format(
-                ConstructName=row["ConstructName"],
-                SubjectName=row["SubjectName"],
-                Question=row["QuestionText"],
-                CorrectAnswer=row["CorrectAnswerText"],
-                IncorrectAnswer=row["InCorrectAnswerText"],
-                Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping),
-            )
-        )
-        for row in df.iter_rows(named=True)
-    ]
-    if model_name == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4":
-        last_text = "<|start_header_id|>assistant<|end_header_id|>"
-    elif model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ", "/kaggle/input/qwen2.5/transformers/32b-instruct-awq/1"]:
-        last_text = "<|im_start|>assistant"
-    else:
-        last_text = ""
-    df = df.with_columns(pl.Series(texts).alias("Prompt"))
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    texts = [
-        tokenizer.apply_chat_template(
-            [
-                {"role": "user", "content": row["Prompt"]},
-            ],
-            tokeadd_generation_prompt=True,
-            tokenize=False,  # textとして渡す
-        )
-        + last_text
-        for row in df.iter_rows(named=True)
-    ]
-    df = df.with_columns(pl.Series(texts).alias("Prompt"))
-    return df
-
-
-def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, str]) -> str:
-    retrieval = ""
-    for i, id in enumerate(misconception_ids):
-        name = id2name_mapping[id]
-        retrieval += f"- {name} \n"
-    return retrieval
 
 
 def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:

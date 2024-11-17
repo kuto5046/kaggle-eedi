@@ -1,7 +1,8 @@
 import gc
 import os
+import re
 import logging
-from typing import Union, Optional
+from typing import Any, Union, Optional
 from pathlib import Path
 
 import hydra
@@ -20,6 +21,7 @@ from transformers import (
     PreTrainedModel,
     BitsAndBytesConfig,
     PreTrainedTokenizer,
+    AutoModelForCausalLM,
     PreTrainedTokenizerFast,
 )
 from sentence_transformers import SentenceTransformer
@@ -34,6 +36,77 @@ LOGGER = logging.getLogger(__name__)
 
 TOKENIZER = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
+
+
+def preprocess_text(x: str) -> str:
+    x = re.sub(r"http\w+", "", x)  # Delete URL
+    x = re.sub(r"\.+", ".", x)  # Replace consecutive commas and periods with one comma and period character
+    x = re.sub(r"\,+", ",", x)
+    x = re.sub(r"\\\(", " ", x)
+    x = re.sub(r"\\\)", " ", x)
+    x = re.sub(r"[ ]{1,}", " ", x)
+    x = x.strip()  # Remove empty characters at the beginning and end
+    return x
+
+
+def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
+    prompt = """
+Here is a question about {ConstructName}({SubjectName}).
+Question: {Question}
+Correct Answer: {CorrectAnswer}
+Incorrect Answer: {IncorrectAnswer}
+
+You are a Mathematics teacher.
+Your task is to reason and identify the misconception behind the Incorrect Answer with the Question in English.
+Answer concisely what misconception it is to lead to getting the incorrect answer.
+No need to give the reasoning process and do not use "The misconception is" to start your answers.
+There are some relative and possible misconceptions below to help you make the decision:
+
+{Retrieval}
+"""
+    id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
+    texts = [
+        preprocess_text(
+            prompt.format(
+                ConstructName=row["ConstructName"],
+                SubjectName=row["SubjectName"],
+                Question=row["QuestionText"],
+                CorrectAnswer=row["CorrectAnswerText"],
+                IncorrectAnswer=row["InCorrectAnswerText"],
+                Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping),
+            )
+        )
+        for row in df.iter_rows(named=True)
+    ]
+    if model_name == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4":
+        last_text = "<|start_header_id|>assistant<|end_header_id|>"
+    elif model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ", "/kaggle/input/qwen2.5/transformers/32b-instruct-awq/1"]:
+        last_text = "<|im_start|>assistant"
+    else:
+        last_text = ""
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    texts = [
+        tokenizer.apply_chat_template(
+            [
+                {"role": "user", "content": row["Prompt"]},
+            ],
+            tokeadd_generation_prompt=True,
+            tokenize=False,  # textとして渡す
+        )
+        + last_text
+        for row in df.iter_rows(named=True)
+    ]
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
+    return df
+
+
+def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, str]) -> str:
+    retrieval = ""
+    for i, id in enumerate(misconception_ids):
+        name = id2name_mapping[id]
+        retrieval += f"- {name} \n"
+    return retrieval
 
 
 def encode(
@@ -232,32 +305,43 @@ def get_stratifiedkfold(train: pl.DataFrame, target_col: str, n_splits: int, see
     return get_fold(train, cv)
 
 
-def setup_quantized_model(cfg: DictConfig) -> tuple[MODEL, TOKENIZER]:
-    # 量子化したモデルを読み込む
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-    base_model = AutoModel.from_pretrained(
-        cfg.retrieval_model.name,
-        quantization_config=bnb_config,
-        # use_cache=False,  # nvidiaモデルはエラーが出る。コメントアウトするとgradient checkpointingの際にwarningが出るが問題はない
-        local_files_only=False,
-        trust_remote_code=True,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(cfg.retrieval_model.name)
+def setup_quantized_model(model_name: str) -> tuple[MODEL, TOKENIZER]:
+    if model_name == "Qwen/Qwen2.5-32B-Instruct-AWQ":
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16,
+            # quantization_config=quantization_config,
+            use_cache=False,
+            # attn_implementation="flash_attention_2",  # メモリ節約目的だが変わらず
+            device_map="auto",
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    else:
+        # 量子化したモデルを読み込む
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        base_model = AutoModel.from_pretrained(
+            model_name,
+            quantization_config=bnb_config,
+            # use_cache=False,  # nvidiaモデルはエラーが出る。コメントアウトするとgradient checkpointingの際にwarningが出るが問題はない
+            local_files_only=False,
+            trust_remote_code=True,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
     return base_model, tokenizer
 
 
 def setup_qlora_model(
-    base_model: MODEL, cfg: DictConfig, pretrained_lora_path: Optional[str | Path]
+    base_model: MODEL, lora_params: dict[str, Any], pretrained_lora_path: Optional[str | Path]
 ) -> tuple[PeftModel, TOKENIZER]:
     if pretrained_lora_path is None:
         # LoRAアダプタを追加
         lora_config = LoraConfig(
-            **cfg.retrieval_model.lora,
+            **lora_params,
             bias="none",
             target_modules=[
                 "q_proj",
@@ -270,6 +354,7 @@ def setup_qlora_model(
             ],
             task_type="DEFAULT",
         )
+        base_model.enable_input_require_grads()
         lora_model = get_peft_model(base_model, lora_config)
         lora_model.print_trainable_parameters()
     else:
@@ -297,24 +382,26 @@ def sentence_emb_similarity_by_sentence_transformers(
 def sentence_emb_similarity_by_peft(
     df: pl.DataFrame,
     misconception_mapping: pl.DataFrame,
-    cfg: DictConfig,
+    model_name: str,
+    lora_params: dict[str, Any],
+    batch_size: int,
     pretrained_lora_path: Optional[str | Path],
 ) -> np.ndarray:
-    base_model, tokenizer = setup_quantized_model(cfg)
-    model = setup_qlora_model(base_model, cfg, pretrained_lora_path)
+    base_model, tokenizer = setup_quantized_model(model_name)
+    model = setup_qlora_model(base_model, lora_params, pretrained_lora_path)
     query_embs = encode(
         model,
         tokenizer,
         df["AllText"].to_list(),
-        model_name=cfg.retrieval_model.name,
-        batch_size=cfg.trainer.batch_size,
+        model_name=model_name,
+        batch_size=batch_size,
     )
     passage_embs = encode(
         model,
         tokenizer,
         misconception_mapping["MisconceptionName"].to_list(),
-        model_name=cfg.retrieval_model.name,
-        batch_size=cfg.trainer.batch_size,
+        model_name=model_name,
+        batch_size=batch_size,
     )
     similarity = cosine_similarity(query_embs, passage_embs)
     sorted_similarity = np.argsort(-similarity, axis=1)
@@ -428,37 +515,24 @@ def generate_candidates(
     cfg: DictConfig,
 ) -> pl.DataFrame:
     # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
-    preds = []
-    for retrieval_model_name in cfg.retrieval_model.names:
-        is_tuned_model_path = True if "exp" in str(retrieval_model_name) else False
-        print(str(retrieval_model_name))
-        if is_tuned_model_path:
-            exp_name = retrieval_model_name.split("/")[-2]
-            assert exp_name.startswith("exp")
-            print(exp_name)
-            if cfg.retrieval_model.use_lora:
-                sorted_similarity = sentence_emb_similarity_by_peft(
-                    df,
-                    misconception_mapping,
-                    cfg,
-                    pretrained_lora_path=retrieval_model_name,
-                )
-            else:
-                sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
-                    retrieval_model_name, df, misconception_mapping
-                )
-        elif retrieval_model_name in ["nvidia/NV-Embed-v2"]:
-            sorted_similarity = sentence_emb_similarity_by_nvidia(retrieval_model_name, df, misconception_mapping)
-        else:
-            sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
-                retrieval_model_name, df, misconception_mapping
+    oofs = []
+    for fold in range(cfg.n_splits):
+        oof = df.filter(pl.col("fold") == fold).clone()
+        sorted_similarity = sentence_emb_similarity_by_peft(
+            oof,
+            misconception_mapping,
+            cfg.retrieval_model.name,
+            cfg.retrieval_model.lora,
+            cfg.trainer.batch_size,
+            pretrained_lora_path=Path(cfg.retrieval_model.pretrained_path) / f"run{fold}",
+        )
+        oofs.append(
+            oof.with_columns(
+                pl.Series(sorted_similarity[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
             )
-        preds.append(sorted_similarity[:, : cfg.max_candidates + 10])  # アンサンブル用に大きめに計算
-
-    pred = ensemble_predictions(preds, cfg.retrieval_model.weights)
-    df = df.with_columns(pl.Series(pred[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId"))
-
-    return df
+        )
+    output_df = pl.concat(oofs).filter(pl.col("MisconceptionId").is_not_null()).sort("QuestionId_Answer")
+    return output_df
 
 
 # https://www.kaggle.com/code/titericz/h-m-ensembling-how-to
@@ -535,13 +609,17 @@ class DataProcessor:
             df = generate_candidates(df, misconception, self.cfg)
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
-            df = explode_candidates(df, misconception)
+            # df = explode_candidates(df, misconception)
             df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
+            df = add_prompt(df, misconception, self.cfg.llm_model.name)
         else:
             df = generate_candidates(df, misconception, self.cfg)
             df = explode_candidates(df, misconception)
+            df = add_prompt(df, misconception, self.cfg.llm_model.name)
 
-        df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
+        df.select(["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "fold", "Prompt"]).write_csv(
+            self.output_dir / f"{self.cfg.phase}.csv"
+        )
 
 
 @hydra.main(config_path="./", config_name="config", version_base="1.2")  # type: ignore

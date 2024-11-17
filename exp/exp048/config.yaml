@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp046
+exp_name: exp048
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "bestで5fold作成"
+notes: "LLMをFT"
 tags: []
 
 defaults:
@@ -25,14 +25,15 @@ use_fold: 0
 ################
 feature_version: ${exp_name}
 retrieve_num: 25
-max_candidates: 100  # 1つの学習データに紐づける負例の候補数
+max_candidates: 25  # 1つの学習データに紐づける負例の候補数
 split_rate: 0.9
 
 ################
 # model
 ################
 retrieval_model:
-  name: Alibaba-NLP/gte-large-en-v1.5
+  name: dunzhang/stella_en_1.5B_v5
+  pretrained_path: ${path.model_dir}/exp046
   # アンサンブルで利用するモデルのパス
   names:
     - ${retrieval_model.name}
@@ -47,6 +48,10 @@ retrieval_model:
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
+  lora:
+    r: 8
+    lora_alpha: 16
+    lora_dropout: 0.05
 
 # 推論用vllm
 vllm:
@@ -61,7 +66,7 @@ vllm:
     max_model_len: 3000
     disable_log_stats: true
     seed: ${seed}
-    enable_lora: false  # LoRAの後付けを可能にする
+    enable_lora: true  # LoRAの後付けを可能にする
 
   sampling:
     n: 1 # Number of output sequences to return for each prompt.
@@ -80,16 +85,16 @@ shuffle_dataset: false
 use_mask_pad_token: false
 
 trainer:
-  epoch: 2
-  batch_size: 16
-  gradient_accumulation_steps: 32  # 128 // batch_size
+  epoch: 1
+  batch_size: 1
+  gradient_accumulation_steps: 32
   gradient_checkpointing: true
-  learning_rate: 8e-6
-  weight_decay: 0.1
+  learning_rate: 2e-5
+  weight_decay: 0.01
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
-  lr_scheduler_type: cosine_with_restarts
-  save_strategy: "no"  # custom callbackで手動保存する
+  lr_scheduler_type: cosine
+  save_strategy: steps  # custom callbackで手動保存する
   save_steps: 0.2  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
   logging_strategy: steps

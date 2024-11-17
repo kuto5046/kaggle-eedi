@@ -1,5 +1,5 @@
 # @package _global_
-run_name: run${use_fold}
+run_name: run0
 use_fold: 0
 
 retrieval_model:
@@ -7,7 +7,7 @@ retrieval_model:
   use_lora: true
 
 trainer:
-  epoch: 10
-  batch_size: 64
-  gradient_accumulation_steps: 1
+  epoch: 1
+  batch_size: 1
+  gradient_accumulation_steps: 16
   gradient_checkpointing: true
