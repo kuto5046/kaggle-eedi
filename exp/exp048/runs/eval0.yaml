@@ -12,7 +12,11 @@ retrieval_model:
   use_lora: true
 
 llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
-
+  lora:
+    r: 64
+    lora_alpha: 256
+    lora_dropout: 0.05
 vllm:
   lora_path: ${path.model_dir}/${exp_name}/${run_name}

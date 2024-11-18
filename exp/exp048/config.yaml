@@ -60,7 +60,7 @@ vllm:
     model: ${llm_model.name}
     quantization: awq
     tensor_parallel_size: 1
-    gpu_memory_utilization: 0.90
+    gpu_memory_utilization: 0.95
     trust_remote_code: true
     dtype: half
     enforce_eager: true
@@ -68,6 +68,7 @@ vllm:
     disable_log_stats: true
     seed: ${seed}
     enable_lora: true  # LoRAの後付けを可能にする
+    max_lora_rank: ${llm_model.lora.r}
 
   sampling:
     n: 1 # Number of output sequences to return for each prompt.
