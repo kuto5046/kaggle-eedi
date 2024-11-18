@@ -9,6 +9,7 @@ import vllm
 import hydra
 import torch
 import polars as pl
+from vllm import RequestOutput
 from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import AutoTokenizer
@@ -181,7 +182,7 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
         return df
 
 
-def parse_inference(full_responses: list[vllm.FullResponse], cfg: DictConfig) -> list[list[int]]:
+def parse_inference(full_responses: list[RequestOutput], cfg: DictConfig) -> list[list[int]]:
     preds: list[list[int]] = []
     for x in full_responses:
         pred = [
@@ -196,7 +197,7 @@ def parse_inference(full_responses: list[vllm.FullResponse], cfg: DictConfig) ->
     return preds
 
 
-def parse_text_inference(full_responses: list[vllm.FullResponse]) -> list[str]:
+def parse_text_inference(full_responses: list[RequestOutput]) -> list[str]:
     preds: list[str] = []
     for x in full_responses:
         pred = ""
