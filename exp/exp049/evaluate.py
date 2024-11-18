@@ -6,7 +6,7 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 
-from .inference import add_prompt, llm_inference
+from .inference import LLMPredictType, add_prompt, llm_inference
 from .data_processor import (
     calc_mapk,
     calc_recall,
@@ -75,13 +75,21 @@ class Evaluator:
         LOGGER.info(f"recall: {calc_recall(df):.5f}")
         LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         if self.cfg.llm_model.use:
-            df = add_prompt(df, misconception, self.cfg.llm_model.name)
+            df = add_prompt(df, misconception, self.cfg.llm_model.name, self.cfg.llm_model.predict_type)
             # LLMで予測
             df = llm_inference(df, self.cfg)
-            df.select(
-                ["QuestionId_Answer", "MisconceptionId", "MisconceptionName", "LLMPredictMisconceptionName", "Prompt"]
-            ).write_csv(self.output_dir / "eval.csv")
-            df = generate_candidates(df, misconception, self.cfg)
+            if not self.cfg.llm_model.predict_type == LLMPredictType.RERANKING.value:
+                df = generate_candidates(df, misconception, self.cfg)
+                df.select(
+                    [
+                        "QuestionId_Answer",
+                        "MisconceptionId",
+                        "MisconceptionName",
+                        "LLMPredictMisconceptionName",
+                        "Prompt",
+                    ]
+                ).write_csv(self.output_dir / "eval.csv")
+
             LOGGER.info("second retrieval")
             LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
             LOGGER.info(f"recall: {calc_recall(df):.5f}")

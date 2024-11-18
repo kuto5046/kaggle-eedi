@@ -1,6 +1,7 @@
 import gc
 import re
 import logging
+from enum import Enum
 from pathlib import Path
 from collections import defaultdict
 
@@ -17,6 +18,12 @@ from .data_processor import generate_candidates
 LOGGER = logging.getLogger(__name__)
 
 
+class LLMPredictType(Enum):
+    TOP1 = "top1"
+    TOP3 = "top3"
+    RERANKING = "reranking"
+
+
 def preprocess_text(x: str) -> str:
     x = re.sub(r"http\w+", "", x)  # Delete URL
     x = re.sub(r"\.+", ".", x)  # Replace consecutive commas and periods with one comma and period character
@@ -28,8 +35,9 @@ def preprocess_text(x: str) -> str:
     return x
 
 
-def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str) -> pl.DataFrame:
-    prompt = """
+def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str, predict_type: str) -> pl.DataFrame:
+    if predict_type == LLMPredictType.TOP1.value:
+        prompt = """
 Here is a question about {ConstructName}({SubjectName}).
 Question: {Question}
 Correct Answer: {CorrectAnswer}
@@ -43,6 +51,48 @@ There are some relative and possible misconceptions below to help you make the d
 
 {Retrieval}
 """
+    elif predict_type == LLMPredictType.TOP3.value:
+        prompt = """
+Here is a question about {ConstructName} ({SubjectName}).
+Question: {Question}
+Correct Answer: {CorrectAnswer}
+Incorrect Answer: {IncorrectAnswer}
+
+You are a Mathematics teacher.
+Your task is to reason and identify the top 3 most likely misconceptions behind the Incorrect Answer with the Question in English.
+Answer concisely by listing the three most probable misconceptions without explaining the reasoning process.
+Use the possible misconceptions below as guidance:
+
+{Retrieval}
+
+Provide the three misconceptions in the following format:
+1.
+2.
+3.
+"""
+    elif predict_type == LLMPredictType.RERANKING.value:
+        prompt = """
+Below is a mathematics question on {ConstructName} ({SubjectName}):
+
+Question: {Question}
+Correct Answer: {CorrectAnswer}
+Student's Incorrect Answer: {IncorrectAnswer}
+
+As a mathematics teacher, your task is to:
+
+- Analyze the student's incorrect answer.
+- Rank the given possible misconceptions from most likely to least likely based on how they could have led to the student's error.
+- Provide the ranked list of IDs separated by '\n' (newline characters) without additional explanations.
+- Do not include the reasoning process.
+Here are the possible misconceptions to consider (each with an ID):
+
+{Retrieval}
+
+Based on the above information, please rank the IDs of the misconceptions in order of likelihood that caused the student's error, separated by '\n'.
+"""
+    else:
+        raise ValueError(f"Invalid LLMPredictType: {LLMPredictType}")
+
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     texts = [
         preprocess_text(
@@ -81,18 +131,17 @@ There are some relative and possible misconceptions below to help you make the d
 
 
 def get_retrieval_text(misconception_ids: list[int], id2name_mapping: dict[int, str]) -> str:
+    # 並びをrandomにする
+    # misconception_ids = random.sample(misconception_ids, len(misconception_ids))
     retrieval = ""
     for i, id in enumerate(misconception_ids):
         name = id2name_mapping[id]
-        retrieval += f"- {name} \n"
+        retrieval += f"{id}: {name} \n"
     return retrieval
 
 
 def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    if cfg.llm_model.name in ["Qwen/Qwen2.5-Math-7B-Instruct"]:
-        llm = vllm.LLM(**cfg.vllm.model)
-    else:
-        llm = vllm.LLM(**cfg.vllm.model)
+    llm = vllm.LLM(**cfg.vllm.model)
     # tokenizer = llm.get_tokenizer()
     sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
     full_responses = llm.generate(
@@ -112,23 +161,49 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     for row in df.iter_rows(named=True):
         candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
 
-    preds = []
+    if cfg.llm_model.predict_type == LLMPredictType.RERANKING.value:
+        assert cfg.vllm.sampling.n == 1
+        _preds = parse_inference(full_responses, cfg)
+        df = df.with_columns(pl.Series(_preds).alias("PredictMisconceptionId"))
+        return df
+    else:
+        preds = parse_text_inference(full_responses)
+        df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
+            pl.concat_str(
+                [
+                    pl.col("AllText"),
+                    pl.lit("\n## LLMPredictMisconception"),
+                    pl.col("LLMPredictMisconceptionName"),
+                ],
+                separator="",
+            ).alias("AllText")
+        )
+        return df
+
+
+def parse_inference(full_responses: list[vllm.FullResponse], cfg: DictConfig) -> list[list[int]]:
+    preds: list[list[int]] = []
+    for x in full_responses:
+        pred = [
+            int(id)
+            for id in x.outputs[0]
+            .text.replace("<|im_start|>", "")
+            .replace(":", "")
+            .strip()
+            .split("\n")[: cfg.retrieve_num]
+        ]
+        preds.append(pred)
+    return preds
+
+
+def parse_text_inference(full_responses: list[vllm.FullResponse]) -> list[str]:
+    preds: list[str] = []
     for x in full_responses:
         pred = ""
         for output in x.outputs:
             pred += output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "
         preds.append(pred)
-    df = df.with_columns(pl.Series(preds).alias("LLMPredictMisconceptionName")).with_columns(
-        pl.concat_str(
-            [
-                pl.col("AllText"),
-                pl.lit("\n## LLMPredictMisconception"),
-                pl.col("LLMPredictMisconceptionName"),
-            ],
-            separator="",
-        ).alias("AllText")
-    )
-    return df
+    return preds
 
 
 class InferencePipeline:
@@ -172,14 +247,15 @@ class InferencePipeline:
         df, misconception_mapping = self.setup_dataset()
         if self.cfg.llm_model.use:
             # llm inference
-            df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name)
+            df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name, self.cfg.llm_model.predict_type)
             df = llm_inference(df, self.cfg)
             # second retreval
-            df = generate_candidates(
-                df,
-                misconception_mapping,
-                self.cfg,
-            )
+            if not self.cfg.llm_model.predict_type == LLMPredictType.RERANKING.value:
+                df = generate_candidates(
+                    df,
+                    misconception_mapping,
+                    self.cfg,
+                )
         self.make_submission(df)
 
 

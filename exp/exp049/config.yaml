@@ -47,6 +47,7 @@ retrieval_model:
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
+  predict_type: "reranking"
 
 # 推論用vllm
 vllm:
