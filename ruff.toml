@@ -41,6 +41,7 @@ ignore = [
 	"E501",  # allow long text
 	"UP007",
 	"S311",
+	"E722",
 ]
 
 [lint.flake8-annotations]

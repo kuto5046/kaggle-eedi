@@ -164,8 +164,11 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
 
     if cfg.llm_model.predict_type == LLMPredictType.RERANKING.value:
         assert cfg.vllm.sampling.n == 1
-        _preds = parse_inference(full_responses, cfg)
-        df = df.with_columns(pl.Series(_preds).alias("PredictMisconceptionId"))
+        try:
+            _preds = parse_inference(full_responses, cfg)
+            df = df.with_columns(pl.Series(_preds).alias("PredictMisconceptionId"))
+        except:
+            print("Failed to parse inference")
         return df
     else:
         preds = parse_text_inference(full_responses)
@@ -192,6 +195,8 @@ def parse_inference(full_responses: list[RequestOutput], cfg: DictConfig) -> lis
             .replace(":", "")
             .strip()
             .split("\n")[: cfg.retrieve_num]
+            # idが整数に変換可能なものだけ取得
+            if id.isdigit()
         ]
         preds.append(pred)
     return preds
