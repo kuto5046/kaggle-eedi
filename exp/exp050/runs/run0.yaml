@@ -1,0 +1,3 @@
+# @package _global_
+run_name: run${use_fold}
+use_fold: 0

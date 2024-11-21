@@ -1,0 +1,11 @@
+# @package _global_
+run_name: eval${use_fold}
+use_fold: 0
+
+max_candidates: ${retrieve_num}
+retrieval_model:
+  names:
+    - ${path.model_dir}/${exp_name}/run0
+
+llm_model:
+  use: true
