@@ -415,16 +415,14 @@ def create_query_and_passage_input(
         query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
         passage_texts = misconception_mapping["MisconceptionName"].to_list()
     elif base_model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ"]:
-        last_text = "<|im_start|>assistant"
         query_texts = [
             tokenizer.apply_chat_template(
                 [
                     {"role": "user", "content": text},
                 ],
-                tokeadd_generation_prompt=True,
+                add_generation_prompt=True,
                 tokenize=False,  # textとして渡す
             )
-            + last_text
             for text in df["AllText"].to_list()
         ]
         passage_texts = misconception_mapping["MisconceptionName"].to_list()
@@ -568,8 +566,11 @@ class DataProcessor:
             if self.cfg.debug:
                 df = df.sample(fraction=0.1, seed=self.cfg.seed)
             # 学習用の候補を生成する
-            df = generate_candidates(
+            sorted_similarity = generate_candidates(
                 df, misconception, self.cfg, retrieval_model_name_or_path=self.cfg.retrieval_model.name
+            )
+            df = df.with_columns(
+                pl.Series(sorted_similarity[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
             )
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
