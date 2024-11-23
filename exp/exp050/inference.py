@@ -174,12 +174,6 @@ Based on the above information, please rank the IDs of the misconceptions in ord
     else:
         raise ValueError(f"Invalid LLMPredictType: {LLMPredictType}")
 
-    # if model_name == "hugging-quants/Meta-Llama-3.1-8B-Instruct-AWQ-INT4":
-    #     last_text = "<|start_header_id|>assistant<|end_header_id|>"
-    # elif model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ", "/kaggle/input/qwen2.5/transformers/32b-instruct-awq/1"]:
-    #     last_text = "<|im_start|>assistant"
-    # else:
-    #     last_text = ""
     df = df.with_columns(pl.Series(texts).alias("Prompt"))
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     texts = [
@@ -218,15 +212,14 @@ def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model.name)
     # tokenizer = llm.get_tokenizer()
     if cfg.llm_model.predict_type == LLMPredictType.Reranking.value:
+        sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
+    else:
         sampling_params = vllm.SamplingParams(
             **cfg.vllm.sampling,
             logits_processors=[
                 MultipleChoiceLogitsProcessor(tokenizer, choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"])
             ],
         )
-
-    else:
-        sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
     full_responses = llm.generate(
         prompts=df["Prompt"].to_numpy(),
         sampling_params=sampling_params,
