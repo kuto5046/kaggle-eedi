@@ -8,7 +8,6 @@ import hydra
 import numpy as np
 import torch
 import polars as pl
-import torch.nn.functional as F
 from peft import PeftModel, LoraConfig, get_peft_model
 from tqdm import tqdm
 from torch import nn
@@ -45,16 +44,17 @@ def encode(
     all_embeddings = []
     for i in tqdm(range(0, len(texts), batch_size), desc="Batches", total=len(texts) // batch_size):
         batch_texts = texts[i : i + batch_size]
-        features = tokenizer(batch_texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt").to(
-            model.device
-        )
-        with torch.no_grad():
-            outputs = model(**features)
-            if model_name == "nvidia/NV-Embed-v2":
-                embeddings = last_token_pool(outputs["sentence_embeddings"], features["attention_mask"])
-            else:
-                embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
-            norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
+        if model_name == "nvidia/NV-Embed-v2":
+            embeddings = model.encode(batch_texts, max_length=32768)
+        else:
+            features = tokenizer(
+                batch_texts, padding=True, truncation=True, max_length=max_length, return_tensors="pt"
+            ).to(model.device)
+            with torch.no_grad():
+                outputs = model(**features)
+            embeddings = last_token_pool(outputs.last_hidden_state, features["attention_mask"])
+
+        norm_embeddings = torch.nn.functional.normalize(embeddings, dim=1)
         all_embeddings.append(to_np(norm_embeddings))
     return np.vstack(all_embeddings)
 
@@ -232,142 +232,6 @@ def get_stratifiedkfold(train: pl.DataFrame, target_col: str, n_splits: int, see
     return get_fold(train, cv)
 
 
-def setup_quantized_model(cfg: DictConfig) -> tuple[MODEL, TOKENIZER]:
-    # 量子化したモデルを読み込む
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-    base_model = AutoModel.from_pretrained(
-        cfg.retrieval_model.name,
-        quantization_config=bnb_config,
-        # use_cache=False,  # nvidiaモデルはエラーが出る。コメントアウトするとgradient checkpointingの際にwarningが出るが問題はない
-        local_files_only=False,
-        trust_remote_code=True,
-    )
-    tokenizer = AutoTokenizer.from_pretrained(cfg.retrieval_model.name)
-    return base_model, tokenizer
-
-
-def setup_qlora_model(
-    base_model: MODEL, cfg: DictConfig, pretrained_lora_path: Optional[str | Path]
-) -> tuple[PeftModel, TOKENIZER]:
-    if pretrained_lora_path is None:
-        # LoRAアダプタを追加
-        lora_config = LoraConfig(
-            **cfg.retrieval_model.lora,
-            bias="none",
-            target_modules=[
-                "q_proj",
-                "k_proj",
-                "v_proj",
-                "o_proj",
-                "gate_proj",
-                "up_proj",
-                "down_proj",
-            ],
-            task_type="DEFAULT",
-        )
-        lora_model = get_peft_model(base_model, lora_config)
-        lora_model.print_trainable_parameters()
-    else:
-        lora_model = PeftModel.from_pretrained(base_model, str(pretrained_lora_path))
-    return lora_model
-
-
-def sentence_emb_similarity_by_sentence_transformers(
-    retrieval_model_name: str | Path,
-    df: pl.DataFrame,
-    misconception_mapping: pl.DataFrame,
-) -> np.ndarray:
-    model = SentenceTransformer(str(retrieval_model_name), local_files_only=False, trust_remote_code=True)
-    text_vec = model.encode(df["AllText"].to_list(), normalize_embeddings=True)
-    misconception_mapping_vec = model.encode(
-        misconception_mapping["MisconceptionName"].to_list(), normalize_embeddings=True
-    )
-    similarity = cosine_similarity(text_vec, misconception_mapping_vec)
-    sorted_similarity = np.argsort(-similarity, axis=1)
-    del model
-    clean_gpu()
-    return sorted_similarity
-
-
-def sentence_emb_similarity_by_peft(
-    df: pl.DataFrame,
-    misconception_mapping: pl.DataFrame,
-    cfg: DictConfig,
-    pretrained_lora_path: Optional[str | Path],
-) -> np.ndarray:
-    base_model, tokenizer = setup_quantized_model(cfg)
-    model = setup_qlora_model(base_model, cfg, pretrained_lora_path)
-    query_embs = encode(
-        model,
-        tokenizer,
-        df["AllText"].to_list(),
-        model_name=cfg.retrieval_model.name,
-        batch_size=cfg.trainer.batch_size,
-    )
-    passage_embs = encode(
-        model,
-        tokenizer,
-        misconception_mapping["MisconceptionName"].to_list(),
-        model_name=cfg.retrieval_model.name,
-        batch_size=cfg.trainer.batch_size,
-    )
-    similarity = cosine_similarity(query_embs, passage_embs)
-    sorted_similarity = np.argsort(-similarity, axis=1)
-    del model, tokenizer
-    clean_gpu()
-    return sorted_similarity
-
-
-def sentence_emb_similarity_by_nvidia(
-    retrieval_model_name: str, df: pl.DataFrame, misconception_mapping: pl.DataFrame
-) -> np.ndarray:
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-    model = AutoModel.from_pretrained(retrieval_model_name, quantization_config=bnb_config, trust_remote_code=True)
-
-    max_length = 32768  # longestに合わせてくれるので大きい値を入れる
-    batch_size = 32
-    num_workers = min(os.cpu_count(), 12)  # type: ignore
-    # get the embeddings
-    instruct = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
-    query_prefix = f"Instruct: {instruct} \nQuery: "
-    df = df.with_columns([(pl.lit(query_prefix) + pl.col("AllText")).alias("AllText")])
-
-    query_embeddings = model._do_encode(
-        df["AllText"].to_list(),
-        instruction="",
-        max_length=max_length,
-        num_workers=num_workers,
-        batch_size=batch_size,
-    )
-    passage_embeddings = model._do_encode(
-        misconception_mapping["MisconceptionName"].to_list(),
-        instruction="",
-        max_length=max_length,
-        num_workers=num_workers,
-        batch_size=batch_size,
-    )
-
-    # normalize embeddings
-    query_embeddings = F.normalize(query_embeddings, p=2, dim=1)
-    passage_embeddings = F.normalize(passage_embeddings, p=2, dim=1)
-
-    similarity = to_np(query_embeddings @ passage_embeddings.T)
-    sorted_similarity = np.argsort(-similarity, axis=1)
-    del model
-    clean_gpu()
-    return sorted_similarity
-
-
 def clean_gpu() -> None:
     gc.collect()
     torch.cuda.empty_cache()
@@ -383,11 +247,6 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
     return df
 
 
-def add_eos(eos_token: str, input_examples: list[str]) -> list[str]:
-    input_examples = [input_example + eos_token for input_example in input_examples]
-    return input_examples
-
-
 def to_np(x: torch.tensor) -> np.ndarray:
     return x.detach().cpu().numpy()
 
@@ -396,12 +255,13 @@ def get_detailed_instruct(task_description: str, query: str) -> str:
     return f"<instruct>{task_description}\n<query>{query}"
 
 
+# https://huggingface.co/BAAI/bge-en-icl
 def get_detailed_example(task_description: str, query: str, response: str) -> str:
     return f"<instruct>{task_description}\n<query>{query}\n<response>{response}"
 
 
 def get_new_queries(
-    queries: list[str], query_max_len: int, examples_prefix: str, tokenizer: AutoTokenizer
+    queries: list[str], query_max_len: int, examples_prefix: str, tokenizer: TOKENIZER
 ) -> tuple[int, list[str]]:
     inputs = tokenizer(
         queries,
@@ -422,41 +282,171 @@ def get_new_queries(
     return new_max_length, new_queries
 
 
+def sentence_emb_similarity_by_sentence_transformers(
+    retrieval_model_name: str | Path,
+    df: pl.DataFrame,
+    misconception_mapping: pl.DataFrame,
+) -> np.ndarray:
+    model = SentenceTransformer(str(retrieval_model_name), local_files_only=False, trust_remote_code=True)
+    text_vec = model.encode(df["AllText"].to_list(), normalize_embeddings=True)
+    misconception_mapping_vec = model.encode(
+        misconception_mapping["MisconceptionName"].to_list(), normalize_embeddings=True
+    )
+    similarity = cosine_similarity(text_vec, misconception_mapping_vec)
+    sorted_similarity = np.argsort(-similarity, axis=1)
+    del model
+    clean_gpu()
+    return sorted_similarity
+
+
+def setup_model_and_tokenizer(
+    model_name: str, is_quantized: bool = False, use_lora: bool = False, lora_params: Optional[dict] = None
+) -> tuple[Union[MODEL, PeftModel], TOKENIZER]:
+    """
+    Unified model and tokenizer setup function.
+    Supports quantized and PEFT configurations.
+    """
+    if is_quantized:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+
+        model = AutoModel.from_pretrained(
+            model_name,
+            quantization_config=bnb_config,
+            # local_files_only=False,
+            trust_remote_code=True,
+            torch_dtype="auto",
+            device_map="auto",
+        )
+    else:
+        model = AutoModel.from_pretrained(model_name, trust_remote_code=True, torch_dtype="auto", device_map="auto")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+    if use_lora:
+        is_tuned_model_path = True if "exp" in model_name else False
+        if is_tuned_model_path:
+            model = PeftModel.from_pretrained(model, model_name)
+        else:
+            lora_config = LoraConfig(
+                **lora_params,
+                bias="none",
+                target_modules=[
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "o_proj",
+                    "gate_proj",
+                    "up_proj",
+                    "down_proj",
+                ],
+                task_type="DEFAULT",
+            )
+            model = get_peft_model(model, lora_config)
+            model.print_trainable_parameters()
+
+    return model, tokenizer
+
+
+def compute_similarity(
+    model: Union[MODEL, PeftModel],
+    tokenizer: TOKENIZER,
+    query_texts: list[str],
+    passage_texts: list[str],
+    model_name: str,
+    batch_size: int,
+) -> np.ndarray:
+    """
+    Compute similarity between queries and passages using model embeddings.
+    """
+
+    query_embs = encode(model, tokenizer, query_texts, model_name=model_name, batch_size=batch_size)
+    passage_embs = encode(model, tokenizer, passage_texts, model_name=model_name, batch_size=batch_size)
+    similarity = cosine_similarity(query_embs, passage_embs)
+    return np.argsort(-similarity, axis=1)
+
+
 def generate_candidates(
     df: pl.DataFrame,
     misconception_mapping: pl.DataFrame,
     cfg: DictConfig,
 ) -> pl.DataFrame:
-    # fine-tuning前のモデルによるembeddingの類似度から負例候補を取得
+    """
+    Generate negative examples based on similarity calculations across different models.
+    """
+    model_names = cfg.retrieval_model.names
+    base_model_name = cfg.retrieval_model.name
+    weights = cfg.retrieval_model.weights
+    use_lora = cfg.retrieval_model.use_lora
+    lora_params = cfg.retrieval_model.lora
+    is_quantized = cfg.retrieval_model.is_quantized
+    batch_size = cfg.retrieval_model.batch_size
+    use_sentence_transformers = cfg.retrieval_model.use_sentence_transformers
+    max_candidates = cfg.max_candidates
+
     preds = []
-    for retrieval_model_name in cfg.retrieval_model.names:
-        is_tuned_model_path = True if "exp" in str(retrieval_model_name) else False
-        print(str(retrieval_model_name))
-        if is_tuned_model_path:
-            exp_name = retrieval_model_name.split("/")[-2]
-            assert exp_name.startswith("exp")
-            print(exp_name)
-            if cfg.retrieval_model.use_lora:
-                sorted_similarity = sentence_emb_similarity_by_peft(
-                    df,
-                    misconception_mapping,
-                    cfg,
-                    pretrained_lora_path=retrieval_model_name,
-                )
-            else:
-                sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
-                    retrieval_model_name, df, misconception_mapping
-                )
-        elif retrieval_model_name in ["nvidia/NV-Embed-v2"]:
-            sorted_similarity = sentence_emb_similarity_by_nvidia(retrieval_model_name, df, misconception_mapping)
-        else:
+    for retrieval_model_name in model_names:
+        print(retrieval_model_name)
+        if use_sentence_transformers:
             sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
                 retrieval_model_name, df, misconception_mapping
             )
-        preds.append(sorted_similarity[:, : cfg.max_candidates + 10])  # アンサンブル用に大きめに計算
+        else:
+            model, tokenizer = setup_model_and_tokenizer(
+                model_name=retrieval_model_name, is_quantized=is_quantized, use_lora=use_lora, lora_params=lora_params
+            )
 
-    pred = ensemble_predictions(preds, cfg.retrieval_model.weights)
-    df = df.with_columns(pl.Series(pred[:, : cfg.max_candidates].tolist()).alias("PredictMisconceptionId"))
+            if base_model_name in [
+                "zeta-alpha-ai/Zeta-Alpha-E5-Mistral",
+                "dunzhang/stella_en_1.5B_v5",
+                "nvidia/NV-Embed-v2",
+            ]:
+                task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+                query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
+                passage_texts = misconception_mapping["MisconceptionName"].to_list()
+            elif base_model_name in [
+                "BAAI/bge-en-icl",
+                "Alibaba-NLP/gte-Qwen2-7B-instruct",
+            ]:
+                task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+                query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
+                examples_prefix = ""  # if there not exists any examples, just set examples_prefix = ''
+                query_max_len = 2048
+                new_query_max_len, query_texts = get_new_queries(query_texts, query_max_len, examples_prefix, tokenizer)
+                passage_texts = misconception_mapping["MisconceptionName"].to_list()
+            elif (
+                base_model_name
+                in [
+                    # "Alibaba-NLP/gte-Qwen2-7B-instruct",
+                ]
+            ):
+                # これでもうまくいかない
+                task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+                query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
+                passage_texts = misconception_mapping["MisconceptionName"].to_list()
+            elif base_model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ"]:
+                pass
+            else:
+                query_texts = df["AllText"].to_list()
+                passage_texts = misconception_mapping["MisconceptionName"].to_list()
+
+            sorted_similarity = compute_similarity(
+                model,
+                tokenizer,
+                query_texts,
+                passage_texts,
+                model_name=base_model_name,
+                batch_size=batch_size,
+            )
+        preds.append(sorted_similarity[:, : max_candidates + 10])  # Collect predictions for ensemble
+
+    # Ensemble predictions and add to the DataFrame
+    pred = ensemble_predictions(preds, weights)
+    df = df.with_columns(pl.Series(pred[:, :max_candidates].tolist()).alias("PredictMisconceptionId"))
 
     return df
 
@@ -531,6 +521,9 @@ class DataProcessor:
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
+
+            if self.cfg.debug:
+                df = df.sample(fraction=0.1, seed=self.cfg.seed)
             # 学習用の候補を生成する
             df = generate_candidates(df, misconception, self.cfg)
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
