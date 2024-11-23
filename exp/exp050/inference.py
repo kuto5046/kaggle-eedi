@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class LLMPredictType(Enum):
-    MultipleChoice = "multiple_choice"
+    Top1 = "top1"
     Reranking = "reranking"
 
 
@@ -109,7 +109,7 @@ def preprocess_text(x: str) -> str:
 def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str, predict_type: str) -> pl.DataFrame:
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
 
-    if predict_type == LLMPredictType.MultipleChoice.value:
+    if predict_type == LLMPredictType.Top1.value:
         prompt = """
 Here is a question about {ConstructName}({SubjectName}).
 Question: {Question}
@@ -203,7 +203,7 @@ def get_retrieval_text(
         if use_misconception_id:
             retrieval += f"{id}: {name} \n"
         else:
-            retrieval += f"{i}: {name} \n"
+            retrieval += f"{i+1}. {name} \n"
     return retrieval
 
 

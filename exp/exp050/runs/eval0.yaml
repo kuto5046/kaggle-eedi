@@ -7,5 +7,8 @@ retrieval_model:
   names:
     - ${path.model_dir}/exp049/run0
 
+
 llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
+  predict_type: reranking # "top1"  #"reranking"
