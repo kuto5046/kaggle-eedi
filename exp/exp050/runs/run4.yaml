@@ -1,5 +1,6 @@
 # @package _global_
 run_name: run4
+notes: これは他のモデルか何かに上書きする
 use_fold: 0
 
 retrieval_model:

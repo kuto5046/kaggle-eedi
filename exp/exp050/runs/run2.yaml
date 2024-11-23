@@ -1,5 +1,6 @@
 # @package _global_
 run_name: run2
+notes: sentence transformersだとまともだがtransformersだとスコア悪いので一旦保留
 use_fold: 0
 
 retrieval_model:
