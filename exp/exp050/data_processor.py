@@ -248,6 +248,8 @@ def explode_candidates(df: pl.DataFrame, misconception_mapping: pl.DataFrame) ->
 
 
 def to_np(x: torch.tensor) -> np.ndarray:
+    if x.dtype == torch.bfloat16:
+        x = x.to(torch.float32)
     return x.detach().cpu().numpy()
 
 
@@ -300,7 +302,11 @@ def sentence_emb_similarity_by_sentence_transformers(
 
 
 def setup_model_and_tokenizer(
-    model_name: str, is_quantized: bool = False, use_lora: bool = False, lora_params: Optional[dict] = None
+    base_model_name: str,
+    model_name: str,
+    is_quantized: bool = False,
+    use_lora: bool = False,
+    lora_params: Optional[dict] = None,
 ) -> tuple[Union[MODEL, PeftModel], TOKENIZER]:
     """
     Unified model and tokenizer setup function.
@@ -315,7 +321,7 @@ def setup_model_and_tokenizer(
         )
 
         model = AutoModel.from_pretrained(
-            model_name,
+            base_model_name,
             quantization_config=bnb_config,
             # local_files_only=False,
             trust_remote_code=True,
@@ -323,9 +329,11 @@ def setup_model_and_tokenizer(
             device_map="auto",
         )
     else:
-        model = AutoModel.from_pretrained(model_name, trust_remote_code=True, torch_dtype="auto", device_map="auto")
+        model = AutoModel.from_pretrained(
+            base_model_name, trust_remote_code=True, torch_dtype="auto", device_map="auto"
+        )
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer = AutoTokenizer.from_pretrained(base_model_name)
 
     if use_lora:
         is_tuned_model_path = True if "exp" in model_name else False
@@ -344,7 +352,8 @@ def setup_model_and_tokenizer(
                     "up_proj",
                     "down_proj",
                 ],
-                task_type="DEFAULT",
+                # task_type="DEFAULT",
+                task_type="FEATURE_EXTRACTION",
             )
             model = get_peft_model(model, lora_config)
             model.print_trainable_parameters()
@@ -397,7 +406,11 @@ def generate_candidates(
             )
         else:
             model, tokenizer = setup_model_and_tokenizer(
-                model_name=retrieval_model_name, is_quantized=is_quantized, use_lora=use_lora, lora_params=lora_params
+                base_model_name=base_model_name,
+                model_name=retrieval_model_name,
+                is_quantized=is_quantized,
+                use_lora=use_lora,
+                lora_params=lora_params,
             )
 
             if base_model_name in [

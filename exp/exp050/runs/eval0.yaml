@@ -5,7 +5,7 @@ use_fold: 0
 max_candidates: ${retrieve_num}
 retrieval_model:
   names:
-    - ${path.model_dir}/${exp_name}/run0
+    - ${path.model_dir}/exp049/run0
 
 llm_model:
   use: true
