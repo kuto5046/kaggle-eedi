@@ -34,9 +34,8 @@ from .data_processor import (
     encode,
     calc_mapk,
     calc_recall,
-    setup_qlora_model,
-    setup_quantized_model,
-    sentence_emb_similarity_by_peft,
+    generate_candidates,
+    setup_model_and_tokenizer,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -316,8 +315,13 @@ class TrainPipeline:
         )
 
     def training(self) -> None:
-        base_model, tokenizer = setup_quantized_model(self.cfg)
-        lora_model = setup_qlora_model(base_model, self.cfg, pretrained_lora_path=None)
+        lora_model, tokenizer = setup_model_and_tokenizer(
+            base_model_name=self.cfg.retrieval_model.name,
+            model_name=self.cfg.retrieval_model.name,
+            is_quantized=self.cfg.retrieval_model.is_quantized,
+            use_lora=self.cfg.retrieval_model.use_lora,
+            lora_params=self.cfg.retrieval_model.lora,
+        )
         model = TripletSimCSEModel(lora_model, self.cfg)
 
         data_collator = TripletCollator(tokenizer, negative_size=self.cfg.negative_size)
@@ -380,12 +384,13 @@ class TrainPipeline:
 
     def evaluate(self) -> None:
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-        sorted_similarity = sentence_emb_similarity_by_peft(
+        sorted_similarity = generate_candidates(
             oof,
             self.misconception_mapping,
             self.cfg,
-            pretrained_lora_path=self.output_dir,
+            retrieval_model_name_or_path=str(self.output_dir),
         )
+
         oof = oof.with_columns(
             pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
         )

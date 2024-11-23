@@ -4,9 +4,9 @@ use_fold: 0
 
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
-  use_lora: true
+  use_lora: false
   is_quantized: false
-  use_sentence_transformers: false
+  use_sentence_transformers: true
   lora:
     r: 64
     lora_alpha: 256

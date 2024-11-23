@@ -6,7 +6,7 @@ retrieval_model:
   name: Alibaba-NLP/gte-Qwen2-7B-instruct
   use_lora: false
   is_quantized: false
-  use_sentence_transformers: true  # TODO: trueにしてスコアが妥当になるかをgcpで確認
+  use_sentence_transformers: false  # こっちだとスコアマシになるがfalseだとスコア悪くなる
   lora:
     r: 8
     lora_alpha: 16

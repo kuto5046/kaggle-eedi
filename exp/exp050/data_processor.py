@@ -301,6 +301,50 @@ def sentence_emb_similarity_by_sentence_transformers(
     return sorted_similarity
 
 
+def setup_lora_model(base_model: MODEL, model_name: str, lora_params: dict | None) -> MODEL:
+    is_tuned_model_path = True if "exp" in model_name else False
+    if is_tuned_model_path:
+        lora_model = PeftModel.from_pretrained(base_model, model_name)
+    else:
+        lora_config = LoraConfig(
+            **lora_params,
+            bias="none",
+            target_modules=[
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+            ],
+            # task_type="DEFAULT",
+            task_type="FEATURE_EXTRACTION",
+        )
+        lora_model = get_peft_model(base_model, lora_config)
+        lora_model.print_trainable_parameters()
+    return lora_model
+
+
+def setup_quantized_model(base_model_name: str) -> PreTrainedModel:
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+
+    model = AutoModel.from_pretrained(
+        base_model_name,
+        quantization_config=bnb_config,
+        # local_files_only=False,
+        trust_remote_code=True,
+        # torch_dtype="auto",
+        device_map="auto",
+    )
+    return model
+
+
 def setup_model_and_tokenizer(
     base_model_name: str,
     model_name: str,
@@ -313,50 +357,14 @@ def setup_model_and_tokenizer(
     Supports quantized and PEFT configurations.
     """
     if is_quantized:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-        )
-
-        model = AutoModel.from_pretrained(
-            base_model_name,
-            quantization_config=bnb_config,
-            # local_files_only=False,
-            trust_remote_code=True,
-            torch_dtype="auto",
-            device_map="auto",
-        )
+        model = setup_quantized_model(base_model_name)
     else:
         model = AutoModel.from_pretrained(
             base_model_name, trust_remote_code=True, torch_dtype="auto", device_map="auto"
         )
-
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-
     if use_lora:
-        is_tuned_model_path = True if "exp" in model_name else False
-        if is_tuned_model_path:
-            model = PeftModel.from_pretrained(model, model_name)
-        else:
-            lora_config = LoraConfig(
-                **lora_params,
-                bias="none",
-                target_modules=[
-                    "q_proj",
-                    "k_proj",
-                    "v_proj",
-                    "o_proj",
-                    "gate_proj",
-                    "up_proj",
-                    "down_proj",
-                ],
-                # task_type="DEFAULT",
-                task_type="FEATURE_EXTRACTION",
-            )
-            model = get_peft_model(model, lora_config)
-            model.print_trainable_parameters()
+        model = setup_lora_model(model, model_name, lora_params)
 
     return model, tokenizer
 
@@ -379,7 +387,90 @@ def compute_similarity(
     return np.argsort(-similarity, axis=1)
 
 
+def create_query_and_passage_input(
+    base_model_name: str, df: pl.DataFrame, misconception_mapping: pl.DataFrame, tokenizer: TOKENIZER
+) -> tuple[list[str], list[str]]:
+    if base_model_name in [
+        "zeta-alpha-ai/Zeta-Alpha-E5-Mistral",
+        "dunzhang/stella_en_1.5B_v5",
+        "nvidia/NV-Embed-v2",
+    ]:
+        task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+        query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
+        passage_texts = misconception_mapping["MisconceptionName"].to_list()
+    elif base_model_name in [
+        "BAAI/bge-en-icl",
+    ]:
+        task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+        query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
+        examples_prefix = ""  # if there not exists any examples, just set examples_prefix = ''
+        query_max_len = 2048
+        new_query_max_len, query_texts = get_new_queries(query_texts, query_max_len, examples_prefix, tokenizer)
+        passage_texts = misconception_mapping["MisconceptionName"].to_list()
+    elif base_model_name in [
+        "Alibaba-NLP/gte-Qwen2-7B-instruct",
+    ]:
+        # これでもうまくいかない
+        task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
+        query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
+        passage_texts = misconception_mapping["MisconceptionName"].to_list()
+    elif base_model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ"]:
+        last_text = "<|im_start|>assistant"
+        query_texts = [
+            tokenizer.apply_chat_template(
+                [
+                    {"role": "user", "content": text},
+                ],
+                tokeadd_generation_prompt=True,
+                tokenize=False,  # textとして渡す
+            )
+            + last_text
+            for text in df["AllText"].to_list()
+        ]
+        passage_texts = misconception_mapping["MisconceptionName"].to_list()
+    else:
+        query_texts = df["AllText"].to_list()
+        passage_texts = misconception_mapping["MisconceptionName"].to_list()
+    return query_texts, passage_texts
+
+
 def generate_candidates(
+    df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig, retrieval_model_name_or_path: str
+) -> pl.DataFrame:
+    base_model_name = cfg.retrieval_model.name
+    use_lora = cfg.retrieval_model.use_lora
+    lora_params = cfg.retrieval_model.lora
+    is_quantized = cfg.retrieval_model.is_quantized
+    batch_size = cfg.retrieval_model.batch_size
+    use_sentence_transformers = cfg.retrieval_model.use_sentence_transformers
+    if use_sentence_transformers:
+        sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
+            retrieval_model_name_or_path, df, misconception_mapping
+        )
+    else:
+        model, tokenizer = setup_model_and_tokenizer(
+            base_model_name=base_model_name,
+            model_name=retrieval_model_name_or_path,
+            is_quantized=is_quantized,
+            use_lora=use_lora,
+            lora_params=lora_params,
+        )
+
+        query_texts, passage_texts = create_query_and_passage_input(
+            base_model_name, df, misconception_mapping, tokenizer
+        )
+        sorted_similarity = compute_similarity(
+            model,
+            tokenizer,
+            query_texts,
+            passage_texts,
+            model_name=base_model_name,
+            batch_size=batch_size,
+        )
+    return sorted_similarity
+
+
+def generate_candidates_all(
     df: pl.DataFrame,
     misconception_mapping: pl.DataFrame,
     cfg: DictConfig,
@@ -388,81 +479,12 @@ def generate_candidates(
     Generate negative examples based on similarity calculations across different models.
     """
     model_names = cfg.retrieval_model.names
-    base_model_name = cfg.retrieval_model.name
     weights = cfg.retrieval_model.weights
-    use_lora = cfg.retrieval_model.use_lora
-    lora_params = cfg.retrieval_model.lora
-    is_quantized = cfg.retrieval_model.is_quantized
-    batch_size = cfg.retrieval_model.batch_size
-    use_sentence_transformers = cfg.retrieval_model.use_sentence_transformers
     max_candidates = cfg.max_candidates
-
     preds = []
     for retrieval_model_name in model_names:
         print(retrieval_model_name)
-        if use_sentence_transformers:
-            sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
-                retrieval_model_name, df, misconception_mapping
-            )
-        else:
-            model, tokenizer = setup_model_and_tokenizer(
-                base_model_name=base_model_name,
-                model_name=retrieval_model_name,
-                is_quantized=is_quantized,
-                use_lora=use_lora,
-                lora_params=lora_params,
-            )
-
-            if base_model_name in [
-                "zeta-alpha-ai/Zeta-Alpha-E5-Mistral",
-                "dunzhang/stella_en_1.5B_v5",
-                "nvidia/NV-Embed-v2",
-            ]:
-                task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
-                query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
-                passage_texts = misconception_mapping["MisconceptionName"].to_list()
-            elif base_model_name in [
-                "BAAI/bge-en-icl",
-            ]:
-                task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
-                query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
-                examples_prefix = ""  # if there not exists any examples, just set examples_prefix = ''
-                query_max_len = 2048
-                new_query_max_len, query_texts = get_new_queries(query_texts, query_max_len, examples_prefix, tokenizer)
-                passage_texts = misconception_mapping["MisconceptionName"].to_list()
-            elif base_model_name in [
-                "Alibaba-NLP/gte-Qwen2-7B-instruct",
-            ]:
-                # これでもうまくいかない
-                task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
-                query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
-                passage_texts = misconception_mapping["MisconceptionName"].to_list()
-            elif base_model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ"]:
-                last_text = "<|im_start|>assistant"
-                query_texts = [
-                    tokenizer.apply_chat_template(
-                        [
-                            {"role": "user", "content": text},
-                        ],
-                        tokeadd_generation_prompt=True,
-                        tokenize=False,  # textとして渡す
-                    )
-                    + last_text
-                    for text in df["AllText"].to_list()
-                ]
-                passage_texts = misconception_mapping["MisconceptionName"].to_list()
-            else:
-                query_texts = df["AllText"].to_list()
-                passage_texts = misconception_mapping["MisconceptionName"].to_list()
-
-            sorted_similarity = compute_similarity(
-                model,
-                tokenizer,
-                query_texts,
-                passage_texts,
-                model_name=base_model_name,
-                batch_size=batch_size,
-            )
+        sorted_similarity = generate_candidates(df, misconception_mapping, cfg, retrieval_model_name)
         preds.append(sorted_similarity[:, : max_candidates + 10])  # Collect predictions for ensemble
 
     # Ensemble predictions and add to the DataFrame
@@ -546,13 +568,15 @@ class DataProcessor:
             if self.cfg.debug:
                 df = df.sample(fraction=0.1, seed=self.cfg.seed)
             # 学習用の候補を生成する
-            df = generate_candidates(df, misconception, self.cfg)
+            df = generate_candidates(
+                df, misconception, self.cfg, retrieval_model_name_or_path=self.cfg.retrieval_model.name
+            )
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
             df = explode_candidates(df, misconception)
             df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
         else:
-            df = generate_candidates(df, misconception, self.cfg)
+            df = generate_candidates_all(df, misconception, self.cfg)
             df = explode_candidates(df, misconception)
 
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
