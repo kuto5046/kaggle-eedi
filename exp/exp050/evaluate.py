@@ -6,7 +6,7 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 
-from .inference import LLMPredictType, add_prompt, llm_inference
+from .inference import add_prompt, llm_inference
 from .data_processor import (
     calc_mapk,
     calc_recall,
@@ -70,7 +70,7 @@ class Evaluator:
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
         df = generate_candidates(df, misconception, self.cfg)
-        LOGGER.info("first retrieval")
+        LOGGER.info("retrieval")
         LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
         LOGGER.info(f"recall: {calc_recall(df):.5f}")
         LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
@@ -78,19 +78,13 @@ class Evaluator:
             df = add_prompt(df, misconception, self.cfg.llm_model.name, self.cfg.llm_model.predict_type)
             # LLMで予測
             df = llm_inference(df, self.cfg)
-            if not self.cfg.llm_model.predict_type == LLMPredictType.RERANKING.value:
-                df = generate_candidates(df, misconception, self.cfg)
-                df.select(
-                    [
-                        "QuestionId_Answer",
-                        "MisconceptionId",
-                        "MisconceptionName",
-                        "LLMPredictMisconceptionName",
-                        "Prompt",
-                    ]
-                ).write_csv(self.output_dir / "eval.csv")
 
-            LOGGER.info("second retrieval")
+            # TODO:
+            # misconception_idをlist化
+            # score計算
+            # 保存
+
+            LOGGER.info("llm inference")
             LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")

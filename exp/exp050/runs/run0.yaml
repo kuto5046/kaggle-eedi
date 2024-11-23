@@ -1,3 +1,15 @@
 # @package _global_
-run_name: run${use_fold}
+run_name: run0
+notes: Qwen2.5-32BをembeddingモデルとしてQLoRA学習
 use_fold: 0
+
+retrieval_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  use_lora: false
+  is_quantized: false
+  lora:
+    r: 8
+    lora_alpha: 16
+
+trainer:
+  batch_size: 8

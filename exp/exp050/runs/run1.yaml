@@ -1,3 +1,12 @@
 # @package _global_
-run_name: run${use_fold}
-use_fold: 1
+run_name: run1
+use_fold: 0
+
+retrieval_model:
+  name: BAAI/bge-en-icl
+  use_lora: true
+  is_quantized: true
+  lora:
+    r: 8
+    lora_alpha: 16
+  batch_size: 32

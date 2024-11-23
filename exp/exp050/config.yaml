@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp049
+exp_name: exp050
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "bestで5fold作成"
+notes: "emb modelを探索"
 tags: []
 
 defaults:
@@ -39,10 +39,14 @@ retrieval_model:
   weights:
     - 1.0
   use_lora: true
+  use_sentence_transformers: false
+  is_quantized: false
   lora:
     r: 64
     lora_alpha: 256
     lora_dropout: 0.05
+  # 推論用
+  batch_size: ${trainer.batch_size}
 
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
@@ -71,7 +75,6 @@ vllm:
     skip_special_tokens: false  # Whether to skip special tokens in the output.
     max_tokens: 512  # Maximum number of tokens to generate per output sequence.
     seed: ${seed}
-
 
 #############
 # train

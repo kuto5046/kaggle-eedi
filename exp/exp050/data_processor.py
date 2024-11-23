@@ -410,7 +410,6 @@ def generate_candidates(
                 passage_texts = misconception_mapping["MisconceptionName"].to_list()
             elif base_model_name in [
                 "BAAI/bge-en-icl",
-                "Alibaba-NLP/gte-Qwen2-7B-instruct",
             ]:
                 task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
                 query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
@@ -418,18 +417,27 @@ def generate_candidates(
                 query_max_len = 2048
                 new_query_max_len, query_texts = get_new_queries(query_texts, query_max_len, examples_prefix, tokenizer)
                 passage_texts = misconception_mapping["MisconceptionName"].to_list()
-            elif (
-                base_model_name
-                in [
-                    # "Alibaba-NLP/gte-Qwen2-7B-instruct",
-                ]
-            ):
+            elif base_model_name in [
+                "Alibaba-NLP/gte-Qwen2-7B-instruct",
+            ]:
                 # これでもうまくいかない
                 task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
                 query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
                 passage_texts = misconception_mapping["MisconceptionName"].to_list()
             elif base_model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ"]:
-                pass
+                last_text = "<|im_start|>assistant"
+                query_texts = [
+                    tokenizer.apply_chat_template(
+                        [
+                            {"role": "user", "content": text},
+                        ],
+                        tokeadd_generation_prompt=True,
+                        tokenize=False,  # textとして渡す
+                    )
+                    + last_text
+                    for text in df["AllText"].to_list()
+                ]
+                passage_texts = misconception_mapping["MisconceptionName"].to_list()
             else:
                 query_texts = df["AllText"].to_list()
                 passage_texts = misconception_mapping["MisconceptionName"].to_list()
