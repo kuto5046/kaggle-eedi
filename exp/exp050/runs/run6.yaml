@@ -1,5 +1,6 @@
 # @package _global_
 run_name: run6
+notes: stellaで学習データを作成して、Qwen2.5-14B-InstructでQLoRA学習
 use_fold: 0
 
 retrieval_model:
@@ -9,6 +10,6 @@ retrieval_model:
   use_sentence_transformers: false
   lora:
     r: 64
-    lora_alpha: 256
+    lora_alpha: 128
 trainer:
   batch_size: 32
