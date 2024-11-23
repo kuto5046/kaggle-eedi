@@ -14,10 +14,10 @@ retrieval_model:
     lora_dropout: 0.05
 
 max_candidates: 100
-negative_size: 3
+negative_size: 1
 
 trainer:
   epoch: 10
-  batch_size: 4
-  gradient_accumulation_steps: 16
+  batch_size: 6
+  gradient_accumulation_steps: 1
   gradient_checkpointing: false  # nvidia-emb-v2は対応していないらしい
