@@ -3,13 +3,22 @@ run_name: run0
 notes: Qwen2.5-32BをembeddingモデルとしてQLoRA学習
 use_fold: 0
 
+negative_size: 2
+use_mask_pad_token: true
 retrieval_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
-  use_lora: false
-  is_quantized: false
+  use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
   lora:
-    r: 8
-    lora_alpha: 16
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: FEATURE_EXTRACTION
 
 trainer:
-  batch_size: 8
+  epoch: 5
+  batch_size: 4
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  num_warmup_steps: 100

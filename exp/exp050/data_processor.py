@@ -393,6 +393,7 @@ def create_query_and_passage_input(
         "dunzhang/stella_en_1.5B_v5",
         "nvidia/NV-Embed-v2",
         "Qwen/Qwen2.5-14B-Instruct",
+        "Qwen/Qwen2.5-32B-Instruct-AWQ",
     ]:
         task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
         query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
@@ -410,18 +411,6 @@ def create_query_and_passage_input(
         # これでもうまくいかない
         task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
         query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
-        passage_texts = misconception_mapping["MisconceptionName"].to_list()
-    elif base_model_name in ["Qwen/Qwen2.5-32B-Instruct-AWQ"]:
-        query_texts = [
-            tokenizer.apply_chat_template(
-                [
-                    {"role": "user", "content": text},
-                ],
-                add_generation_prompt=True,
-                tokenize=False,  # textとして渡す
-            )
-            for text in df["AllText"].to_list()
-        ]
         passage_texts = misconception_mapping["MisconceptionName"].to_list()
     else:
         query_texts = df["AllText"].to_list()
