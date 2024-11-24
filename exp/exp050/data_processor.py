@@ -392,6 +392,7 @@ def create_query_and_passage_input(
         "zeta-alpha-ai/Zeta-Alpha-E5-Mistral",
         "dunzhang/stella_en_1.5B_v5",
         "nvidia/NV-Embed-v2",
+        "Qwen/Qwen2.5-14B-Instruct",
     ]:
         task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
         query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
@@ -405,9 +406,7 @@ def create_query_and_passage_input(
         query_max_len = 2048
         new_query_max_len, query_texts = get_new_queries(query_texts, query_max_len, examples_prefix, tokenizer)
         passage_texts = misconception_mapping["MisconceptionName"].to_list()
-    elif base_model_name in [
-        "Alibaba-NLP/gte-Qwen2-7B-instruct",
-    ]:
+    elif base_model_name in ["Alibaba-NLP/gte-Qwen2-7B-instruct"]:
         # これでもうまくいかない
         task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
         query_texts = [f"Instruct: {task_description}\nQuery: {query}" for query in df["AllText"].to_list()]
@@ -562,7 +561,7 @@ class DataProcessor:
             df = self.add_fold(df)
 
             if self.cfg.debug:
-                df = df.sample(fraction=0.1, seed=self.cfg.seed)
+                df = df.sample(fraction=0.05, seed=self.cfg.seed)
             # 学習用の候補を生成する
             sorted_similarity = generate_candidates(
                 df, misconception, self.cfg, retrieval_model_name_or_path=self.cfg.retrieval_model.name
