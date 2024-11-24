@@ -2,20 +2,22 @@
 run_name: sub0
 phase: test
 max_candidates: ${retrieve_num}
+
 retrieval_model:
+  name: Qwen/Qwen2.5-14B-Instruct
   names:
-    - ${path.model_dir}/${exp_name}/run0
-    # - ${path.model_dir}/${exp_name}/run1
-    # - ${path.model_dir}/${exp_name}/run2
-    # - ${path.model_dir}/${exp_name}/run3
-    # - ${path.model_dir}/${exp_name}/run4
+    - ${path.model_dir}/${exp_name}/run6
   weights:
     - 1
-    # - 1
-    # - 1
-    # - 1
-    # - 1
   use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: FEATURE_EXTRACTION
+
 
 llm_model:
   use: true
