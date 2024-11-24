@@ -8,13 +8,13 @@ use_mask_pad_token: true
 retrieval_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use_lora: true
-  is_quantized: true
+  is_quantized: false
   use_sentence_transformers: false
   lora:
     r: 64
     lora_alpha: 128
     lora_dropout: 0.05
-    task_type: FEATURE_EXTRACTION
+    task_type: DEFAULT
 
 trainer:
   epoch: 5
