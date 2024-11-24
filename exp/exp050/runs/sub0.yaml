@@ -17,6 +17,7 @@ retrieval_model:
     lora_alpha: 128
     lora_dropout: 0.05
     task_type: FEATURE_EXTRACTION
+  batch_size: 16
 
 
 llm_model:

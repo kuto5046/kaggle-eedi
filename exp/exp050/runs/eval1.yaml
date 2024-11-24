@@ -20,3 +20,6 @@ llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
   predict_type: reranking # "top1"  #"reranking"
+
+trainer:
+  batch_size: 8

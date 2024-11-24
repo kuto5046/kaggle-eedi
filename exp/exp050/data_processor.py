@@ -451,6 +451,8 @@ def generate_candidates(
             model_name=base_model_name,
             batch_size=batch_size,
         )
+        del model, tokenizer
+        clean_gpu()
     return sorted_similarity
 
 
