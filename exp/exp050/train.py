@@ -148,10 +148,31 @@ class CustomMultipleNegativesRankingLoss(nn.Module):
 
 
 class TripletCollator:
-    def __init__(self, tokenizer: TOKENIZER, max_length: int = 2048, negative_size: int = 3) -> None:
+    def __init__(
+        self,
+        tokenizer: TOKENIZER,
+        max_length: int = 2048,
+        negative_size: int = 3,
+        use_mask_pad_token: bool = False,
+        mask_rate: float = 0.9,
+    ) -> None:
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.negative_size = negative_size
+        self.use_mask_pad_token = use_mask_pad_token
+        self.mask_rate = mask_rate
+
+    def mask_pad_token(self, q: dict[str, torch.tensor]) -> dict[str, torch.tensor]:
+        if random.random() > self.mask_rate:
+            tensor = q["input_ids"].float()
+            mask = torch.rand(tensor.shape)
+
+            mask = (mask > self.mask_rate).float()
+
+            tensor = tensor * (1 - mask) + 2 * mask
+            tensor = tensor.long()
+            q["input_ids"] = tensor
+        return q
 
     def __call__(self, features: list[dict[str, str]]) -> dict[str, torch.tensor]:
         queries = [f["AllText"] for f in features]
@@ -182,6 +203,12 @@ class TripletCollator:
             negatives, padding=True, truncation=True, max_length=self.max_length, return_tensors="pt"
         )
         device = queries_encoded["input_ids"].device
+
+        if self.use_mask_pad_token:
+            queries_encoded = self.mask_pad_token(queries_encoded)
+            positives_encoded = self.mask_pad_token(positives_encoded)
+            negatives_encoded = self.mask_pad_token(negatives_encoded)
+
         return {
             "anchor": queries_encoded,
             "positive": positives_encoded,

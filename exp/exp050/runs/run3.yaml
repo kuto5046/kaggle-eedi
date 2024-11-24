@@ -4,7 +4,7 @@ notes: kddの再現
 use_fold: 0
 
 negative_size: 2
-
+use_mask_pad_token: true
 retrieval_model:
   name: dunzhang/stella_en_1.5B_v5
   use_lora: true
