@@ -318,8 +318,6 @@ def setup_lora_model(base_model: MODEL, model_name: str, lora_params: dict | Non
                 "up_proj",
                 "down_proj",
             ],
-            # task_type="DEFAULT",
-            task_type="FEATURE_EXTRACTION",
         )
         lora_model = get_peft_model(base_model, lora_config)
         lora_model.print_trainable_parameters()

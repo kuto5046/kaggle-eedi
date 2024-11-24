@@ -117,7 +117,7 @@ class CustomCallback(TrainerCallback):
 
 # https://github.com/UKPLab/sentence-transformers/blob/master/sentence_transformers/losses/MultipleNegativesRankingLoss.py#L12-L124
 class CustomMultipleNegativesRankingLoss(nn.Module):
-    def __init__(self, scale: float = 20.0) -> None:
+    def __init__(self, scale: float = 50.0) -> None:
         super().__init__()
         self.scale = scale
         self.cross_entropy_loss = nn.CrossEntropyLoss()

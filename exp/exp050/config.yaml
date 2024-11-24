@@ -45,6 +45,7 @@ retrieval_model:
     r: 64
     lora_alpha: 256
     lora_dropout: 0.05
+    task_type: DEFAULT
   # 推論用
   batch_size: ${trainer.batch_size}
 
@@ -92,7 +93,7 @@ trainer:
   weight_decay: 0.1
   warmup_ratio: 0.1
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
-  lr_scheduler_type: cosine_with_restarts
+  lr_scheduler_type: cosine
   save_strategy: "no"  # custom callbackで手動保存する
   save_steps: 0.2  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
