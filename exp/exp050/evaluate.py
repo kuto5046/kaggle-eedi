@@ -6,14 +6,14 @@ import polars as pl
 from lightning import seed_everything
 from omegaconf import DictConfig
 
-from .inference import add_prompt, llm_inference
+from .inference import llm_inference
 from .data_processor import (
     calc_mapk,
     calc_recall,
     get_groupkfold,
     preprocess_table,
-    generate_candidates,
     get_stratifiedkfold,
+    generate_candidates_all,
     preprocess_misconception,
 )
 
@@ -69,20 +69,14 @@ class Evaluator:
         return all_df.drop("index").sort("QuestionId_Answer")
 
     def feature_engineering(self, df: pl.DataFrame, misconception: pl.DataFrame) -> pl.DataFrame:
-        df = generate_candidates(df, misconception, self.cfg)
+        df = generate_candidates_all(df, misconception, self.cfg)
+
         LOGGER.info("retrieval")
         LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")
         LOGGER.info(f"recall: {calc_recall(df):.5f}")
         LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
         if self.cfg.llm_model.use:
-            df = add_prompt(df, misconception, self.cfg.llm_model.name, self.cfg.llm_model.predict_type)
-            # LLMで予測
-            df = llm_inference(df, self.cfg)
-
-            # TODO:
-            # misconception_idをlist化
-            # score計算
-            # 保存
+            df = llm_inference(df, misconception, self.cfg)
 
             LOGGER.info("llm inference")
             LOGGER.info(f"fold={self.cfg.use_fold} validation size: {len(df)}")

@@ -7,12 +7,15 @@ from collections import defaultdict
 
 import vllm
 import hydra
+import numpy as np
 import torch
 import polars as pl
 from vllm import RequestOutput
 from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import AutoTokenizer, PreTrainedTokenizer
+
+from .data_processor import TOKENIZER
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,39 +109,9 @@ def preprocess_text(x: str) -> str:
     return x
 
 
-def add_prompt(df: pl.DataFrame, misconception: pl.DataFrame, model_name: str, predict_type: str) -> pl.DataFrame:
+def add_reranking_prompt(df: pl.DataFrame, misconception: pl.DataFrame, tokenizer: TOKENIZER) -> pl.DataFrame:
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
-
-    if predict_type == LLMPredictType.Top1.value:
-        prompt = """
-Here is a question about {ConstructName}({SubjectName}).
-Question: {Question}
-Correct Answer: {CorrectAnswer}
-Incorrect Answer: {IncorrectAnswer}
-
-You are a Mathematics teacher. Your task is to reason and identify the misconception behind the Incorrect Answer with the Question.
-Answer concisely what misconception it is to lead to getting the incorrect answer.
-Pick the correct misconception number from the below:
-
-{Retrieval}
-"""
-        texts = [
-            preprocess_text(
-                prompt.format(
-                    ConstructName=row["ConstructName"],
-                    SubjectName=row["SubjectName"],
-                    Question=row["QuestionText"],
-                    CorrectAnswer=row["CorrectAnswerText"],
-                    IncorrectAnswer=row["InCorrectAnswerText"],
-                    Retrieval=get_retrieval_text(
-                        row["PredictMisconceptionId"], id2name_mapping, use_misconception_id=False
-                    ),
-                )
-            )
-            for row in df.iter_rows(named=True)
-        ]
-    elif predict_type == LLMPredictType.Reranking.value:
-        prompt = """
+    prompt = """
 Below is a mathematics question on {ConstructName} ({SubjectName}):
 Question: {Question}
 Correct Answer: {CorrectAnswer}
@@ -156,26 +129,68 @@ Here are the possible misconceptions to consider (each with an ID):
 
 Based on the above information, please rank the IDs of the misconceptions in order of likelihood that caused the student's error, separated by '\n'.
 """
-        texts = [
-            preprocess_text(
-                prompt.format(
-                    ConstructName=row["ConstructName"],
-                    SubjectName=row["SubjectName"],
-                    Question=row["QuestionText"],
-                    CorrectAnswer=row["CorrectAnswerText"],
-                    IncorrectAnswer=row["InCorrectAnswerText"],
-                    Retrieval=get_retrieval_text(
-                        row["PredictMisconceptionId"], id2name_mapping, use_misconception_id=True
-                    ),
-                )
+    texts = [
+        preprocess_text(
+            prompt.format(
+                ConstructName=row["ConstructName"],
+                SubjectName=row["SubjectName"],
+                Question=row["QuestionText"],
+                CorrectAnswer=row["CorrectAnswerText"],
+                IncorrectAnswer=row["InCorrectAnswerText"],
+                Retrieval=get_retrieval_text(row["PredictMisconceptionId"], id2name_mapping, use_misconception_id=True),
             )
-            for row in df.iter_rows(named=True)
-        ]
-    else:
-        raise ValueError(f"Invalid LLMPredictType: {LLMPredictType}")
+        )
+        for row in df.iter_rows(named=True)
+    ]
 
     df = df.with_columns(pl.Series(texts).alias("Prompt"))
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    texts = [
+        tokenizer.apply_chat_template(
+            [
+                {"role": "user", "content": row["Prompt"]},
+            ],
+            # tokeadd_generation_prompt=True,
+            add_generation_prompt=True,
+            tokenize=False,  # textとして渡す
+        )
+        # + last_text
+        for row in df.iter_rows(named=True)
+    ]
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
+    return df
+
+
+def add_top1_prompt(df: pl.DataFrame, misconception: pl.DataFrame, tokenizer: TOKENIZER) -> pl.DataFrame:
+    id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
+    prompt = """
+Here is a question about {ConstructName}({SubjectName}).
+Question: {Question}
+Correct Answer: {CorrectAnswer}
+Incorrect Answer: {IncorrectAnswer}
+
+You are a Mathematics teacher. Your task is to reason and identify the misconception behind the Incorrect Answer with the Question.
+Answer concisely what misconception it is to lead to getting the incorrect answer.
+Pick the correct misconception number from the below:
+
+{Retrieval}
+"""
+    texts = [
+        preprocess_text(
+            prompt.format(
+                ConstructName=row["ConstructName"],
+                SubjectName=row["SubjectName"],
+                Question=row["QuestionText"],
+                CorrectAnswer=row["CorrectAnswerText"],
+                IncorrectAnswer=row["InCorrectAnswerText"],
+                Retrieval=get_retrieval_text(
+                    row["PredictMisconceptionId"], id2name_mapping, use_misconception_id=False
+                ),
+            )
+        )
+        for row in df.iter_rows(named=True)
+    ]
+
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
     texts = [
         tokenizer.apply_chat_template(
             [
@@ -203,53 +218,72 @@ def get_retrieval_text(
         if use_misconception_id:
             retrieval += f"{id}: {name} \n"
         else:
-            retrieval += f"{i+1}. {name} \n"
+            retrieval += f"{i}. {name} \n"
     return retrieval
 
 
-def llm_inference(df: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
+def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
     llm = vllm.LLM(**cfg.vllm.model)
     tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model.name)
-    # tokenizer = llm.get_tokenizer()
     if cfg.llm_model.predict_type == LLMPredictType.Reranking.value:
+        df = add_reranking_prompt(df, misconception, tokenizer)
         sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
-    else:
-        sampling_params = vllm.SamplingParams(
-            **cfg.vllm.sampling,
-            logits_processors=[
-                MultipleChoiceLogitsProcessor(tokenizer, choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"])
-            ],
+        full_responses = llm.generate(
+            prompts=df["Prompt"].to_numpy(),
+            sampling_params=sampling_params,
+            # lora_request=LoRARequest("adapter", 1, self.output_dir),
+            use_tqdm=True,
         )
-    full_responses = llm.generate(
-        prompts=df["Prompt"].to_numpy(),
-        sampling_params=sampling_params,
-        # lora_request=LoRARequest("adapter", 1, self.output_dir),
-        use_tqdm=True,
-    )
-
-    del llm
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.synchronize()
-
-    # question,idxをkeyとしてmisconception_idを取得する
-    candidates = defaultdict(list)
-    for row in df.iter_rows(named=True):
-        candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
-
-    if cfg.llm_model.predict_type == LLMPredictType.Reranking.value:
+        # question,idxをkeyとしてmisconception_idを取得する
+        candidates = defaultdict(list)
+        for row in df.iter_rows(named=True):
+            candidates[row["QuestionId"]] = row["PredictMisconceptionId"]
         assert cfg.vllm.sampling.n == 1
         try:
             _preds = parse_inference(full_responses, cfg)
             df = df.with_columns(pl.Series(_preds).alias("PredictMisconceptionId"))
         except:
             print("Failed to parse inference")
-        return df
+
+    elif cfg.llm_model.predict_type == LLMPredictType.Top1.value:
+        sampling_params = vllm.SamplingParams(
+            **cfg.vllm.sampling,
+            logits_processors=[
+                MultipleChoiceLogitsProcessor(tokenizer, choices=[f"{i}" for i in range(cfg.max_candidates)])
+            ],
+        )
+
+        indices = np.array(df["PredictMisconceptionId"].to_list())
+        survivors = indices[:, -1:]  # 候補の中で最も類似度が大きいもの
+
+        for i in range(3):
+            c_indices = np.concatenate([indices[:, -8 * (i + 1) - 1 : -8 * i - 1], survivors], axis=1)
+            df = add_top1_prompt(df, misconception, tokenizer)
+            full_responses = llm.generate(
+                prompts=df["Prompt"].to_numpy(),
+                sampling_params=sampling_params,
+                # lora_request=LoRARequest("adapter", 1, self.output_dir),
+                use_tqdm=True,
+            )
+            responses = [x.outputs[0].text for x in full_responses]
+            df = df.with_columns(pl.Series(responses).alias("response"))
+            llm_choices = df["response"].astype(int).values - 1
+            survivors = np.array([cix[best] for best, cix in zip(llm_choices, c_indices)]).reshape(-1, 1)
+
+        results = []
+        for i in range(indices.shape[0]):
+            ix = indices[i]
+            llm_choice = survivors[i, 0]
+            results.append(" ".join([str(llm_choice)] + [str(x) for x in ix if x != llm_choice]))
+        df = df.with_columns(pl.Series(results).alias("PredictMisconceptionId"))
     else:
-        preds = parse_text_inference(full_responses)
-        # TODO: indexからquestion_idを取得する
-        df = df.with_columns(pl.Series(preds).alias("PredictMisconceptionId"))
-        return df
+        raise ValueError(f"Invalid predict_type: {cfg.llm_model.predict_type}")
+
+    del llm
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()
+    return df
 
 
 def parse_inference(full_responses: list[RequestOutput], cfg: DictConfig) -> list[list[int]]:
@@ -269,13 +303,10 @@ def parse_inference(full_responses: list[RequestOutput], cfg: DictConfig) -> lis
     return preds
 
 
-def parse_text_inference(full_responses: list[RequestOutput]) -> list[str]:
-    preds: list[str] = []
+def parse_text_inference(full_responses: list[RequestOutput]) -> list[int]:
+    preds: list[int] = []
     for x in full_responses:
-        pred = ""
-        for output in x.outputs:
-            pred += output.text.replace("<|im_start|>", "").replace(":", "").strip() + " "
-        preds.append(pred)
+        preds.append(int(x.outputs[0].text.replace("<|im_start|>", "").replace(":", "").strip()))
     return preds
 
 
@@ -320,8 +351,7 @@ class InferencePipeline:
         df, misconception_mapping = self.setup_dataset()
         if self.cfg.llm_model.use:
             # llm inference
-            df = add_prompt(df, misconception_mapping, self.cfg.llm_model.name, self.cfg.llm_model.predict_type)
-            df = llm_inference(df, self.cfg)
+            df = llm_inference(df, misconception_mapping, self.cfg)
         self.make_submission(df)
 
 

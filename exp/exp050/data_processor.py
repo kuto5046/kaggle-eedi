@@ -420,7 +420,7 @@ def create_query_and_passage_input(
 
 def generate_candidates(
     df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig, retrieval_model_name_or_path: str
-) -> pl.DataFrame:
+) -> np.ndarray:
     base_model_name = cfg.retrieval_model.name
     use_lora = cfg.retrieval_model.use_lora
     lora_params = cfg.retrieval_model.lora
