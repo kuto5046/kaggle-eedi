@@ -160,7 +160,9 @@ Based on the above information, please rank the IDs of the misconceptions in ord
     return df
 
 
-def add_top1_prompt(df: pl.DataFrame, misconception: pl.DataFrame, tokenizer: TOKENIZER) -> pl.DataFrame:
+def add_top1_prompt(
+    df: pl.DataFrame, misconception: pl.DataFrame, tokenizer: TOKENIZER, candidate_misconception_ids: np.ndarray
+) -> pl.DataFrame:
     id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
     prompt = """
 Here is a question about {ConstructName}({SubjectName}).
@@ -182,12 +184,10 @@ Pick the correct misconception number from the below:
                 Question=row["QuestionText"],
                 CorrectAnswer=row["CorrectAnswerText"],
                 IncorrectAnswer=row["InCorrectAnswerText"],
-                Retrieval=get_retrieval_text(
-                    row["PredictMisconceptionId"], id2name_mapping, use_misconception_id=False
-                ),
+                Retrieval=get_retrieval_text_for_top1(candidate_misconception_ids[i], id2name_mapping),
             )
         )
-        for row in df.iter_rows(named=True)
+        for i, row in enumerate(df.iter_rows(named=True))
     ]
 
     df = df.with_columns(pl.Series(texts).alias("Prompt"))
@@ -205,6 +205,16 @@ Pick the correct misconception number from the below:
     ]
     df = df.with_columns(pl.Series(texts).alias("Prompt"))
     return df
+
+
+def get_retrieval_text_for_top1(misconception_ids: np.ndarray, id2name_mapping: dict[int, str]) -> str:
+    # 並びをrandomにする
+    # misconception_ids = random.sample(misconception_ids, len(misconception_ids))
+    retrieval = ""
+    for i, id in enumerate(misconception_ids):
+        name = id2name_mapping[id]
+        retrieval += f"{i}. {name} \n"
+    return retrieval
 
 
 def get_retrieval_text(
@@ -253,12 +263,15 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
             ],
         )
 
-        indices = np.array(df["PredictMisconceptionId"].to_list())
-        survivors = indices[:, -1:]  # 候補の中で最も類似度が大きいもの
+        predict_misconception_ids = np.array(df["PredictMisconceptionId"].to_list())
+        survivors = predict_misconception_ids[:, -1:]  # 候補の中で最も類似度が大きいもの
 
+        # 一気に25件を扱えないから3回に分けて処理している
         for i in range(3):
-            c_indices = np.concatenate([indices[:, -8 * (i + 1) - 1 : -8 * i - 1], survivors], axis=1)
-            df = add_top1_prompt(df, misconception, tokenizer)
+            candidate_misconception_ids = np.concatenate(
+                [predict_misconception_ids[:, -8 * (i + 1) - 1 : -8 * i - 1], survivors], axis=1
+            )
+            df = add_top1_prompt(df, misconception, tokenizer, candidate_misconception_ids)
             full_responses = llm.generate(
                 prompts=df["Prompt"].to_numpy(),
                 sampling_params=sampling_params,
@@ -267,14 +280,18 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
             )
             responses = [x.outputs[0].text for x in full_responses]
             df = df.with_columns(pl.Series(responses).alias("response"))
-            llm_choices = df["response"].astype(int).values - 1
-            survivors = np.array([cix[best] for best, cix in zip(llm_choices, c_indices)]).reshape(-1, 1)
+            llm_choices = df.select(["response"]).to_numpy().astype(int)
+
+            # llmが選択したidを追加する
+            survivors = np.array([cids[best] for best, cids in zip(llm_choices, candidate_misconception_ids)]).reshape(
+                -1, 1
+            )
 
         results = []
-        for i in range(indices.shape[0]):
-            ix = indices[i]
+        for i in range(predict_misconception_ids.shape[0]):
+            ix = predict_misconception_ids[i]
             llm_choice = survivors[i, 0]
-            results.append(" ".join([str(llm_choice)] + [str(x) for x in ix if x != llm_choice]))
+            results.append([llm_choice] + [x for x in ix if x != llm_choice])
         df = df.with_columns(pl.Series(results).alias("PredictMisconceptionId"))
     else:
         raise ValueError(f"Invalid predict_type: {cfg.llm_model.predict_type}")

@@ -1,12 +1,12 @@
 # @package _global_
-run_name: eval1
+run_name: run8
+notes: stellaで学習データを作成して、Qwen2.5-14B-InstructでQLoRA学習 negative_size=1で学習
 use_fold: 0
 
-max_candidates: ${retrieve_num}
+negative_size: 1
+use_mask_pad_token: true
 retrieval_model:
   name: Qwen/Qwen2.5-14B-Instruct
-  names:
-    - ${path.model_dir}/exp050/run7
   use_lora: true
   is_quantized: true
   use_sentence_transformers: false
@@ -16,14 +16,9 @@ retrieval_model:
     lora_dropout: 0.05
     task_type: FEATURE_EXTRACTION
 
-llm_model:
-  name: Qwen/Qwen2.5-32B-Instruct-AWQ
-  use: true
-  predict_type: top1 # "top1"  #"reranking"
-
-vllm:
-  sampling:
-    max_tokens: 1
-
 trainer:
-  batch_size: 8
+  epoch: 5
+  batch_size: 16
+  learning_rate: 1e-4
+  weight_decay: 0.01
+  num_warmup_steps: 100
