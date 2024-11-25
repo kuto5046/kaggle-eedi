@@ -1,0 +1,23 @@
+# @package _global_
+run_name: run17
+notes: run6と同じdatasetで直近の実験で良さそうなbatch, nega条件を採用して5epoch
+use_fold: 0
+
+negative_size: 3
+use_mask_pad_token: true
+retrieval_model:
+  name: Qwen/Qwen2.5-14B-Instruct
+  use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: FEATURE_EXTRACTION
+
+trainer:
+  epoch: 5
+  batch_size: 32
+  learning_rate: 1e-4
+  weight_decay: 0.01
