@@ -1,6 +1,6 @@
 # @package _global_
 run_name: run13
-notes: stellaで学習データを作成して、Qwen2.5-14B-InstructでQLoRA学習 直近の実験で良さそうなbatch, nega条件を採用して10epoch
+notes: run6と同じdatasetで直近の実験で良さそうなbatch, nega条件を採用して10epoch
 use_fold: 0
 
 negative_size: 3
