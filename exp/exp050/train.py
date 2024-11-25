@@ -368,6 +368,7 @@ class TrainPipeline:
             learning_rate=params.learning_rate,
             weight_decay=params.weight_decay,
             warmup_ratio=params.warmup_ratio,
+            warmup_steps=params.warmup_steps,
             fp16=False,  # Set to False if you get an error that your GPU can't run on FP16
             bf16=True,  # Set to True if you have a GPU that supports BF16
             # Optional tracking/debugging parameters:

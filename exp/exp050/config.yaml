@@ -92,6 +92,7 @@ trainer:
   learning_rate: 5e-5
   weight_decay: 0.1
   warmup_ratio: 0.1
+  warmup_steps: 0
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
   lr_scheduler_type: cosine
   save_strategy: "no"  # custom callbackで手動保存する
