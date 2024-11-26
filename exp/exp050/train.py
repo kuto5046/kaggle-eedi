@@ -48,6 +48,20 @@ os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
+def calc_rank(oof: pl.DataFrame, max_rank: int = 1000) -> pl.DataFrame:
+    oof1 = oof.filter(pl.col("MisconceptionId").is_in("PredictMisconceptionId"))
+    oof2 = oof.filter(~pl.col("MisconceptionId").is_in("PredictMisconceptionId"))
+
+    oof1 = oof1.with_columns(
+        pl.struct(["MisconceptionId", "PredictMisconceptionId"])
+        .map_elements(lambda x: x["PredictMisconceptionId"].index(x["MisconceptionId"]), return_dtype=pl.Int32)
+        .alias("rank")
+    )
+    # リスト内の要素が見つからなかった場合はmax_rankを返す
+    oof2 = oof2.with_columns(pl.lit(max_rank).cast(pl.Int32).alias("rank"))
+    return pl.concat([oof1, oof2]).sort("QuestionId_Answer")
+
+
 class CustomCallback(TrainerCallback):
     def __init__(
         self, trainer: Trainer, valid: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig
@@ -337,7 +351,7 @@ class TrainPipeline:
             name=f"{self.cfg.exp_name}_{self.cfg.run_name}",
             group=self.cfg.exp_name,
             tags=self.cfg.tags,
-            mode="disabled" if self.cfg.debug else "online",
+            mode="disabled",  # if self.cfg.debug else "online",
             notes=self.cfg.notes,
         )
 
@@ -402,7 +416,7 @@ class TrainPipeline:
         )  # <-- just add one line
 
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
-        trainer.train()
+        # trainer.train()
 
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
@@ -428,6 +442,9 @@ class TrainPipeline:
         LOGGER.info(f"CV: {mapk:.5f}")
         wandb.log({"Recall": recall})  # type: ignore
         wandb.log({"CV": mapk})  # type: ignore
+
+        # oofを整理して保存
+        oof = calc_rank(oof)
         oof = oof.drop("AllText").with_columns(
             pl.col("PredictMisconceptionId").map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
         )
