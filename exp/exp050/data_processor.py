@@ -394,6 +394,7 @@ def create_query_and_passage_input(
         "nvidia/NV-Embed-v2",
         "Qwen/Qwen2.5-14B-Instruct",
         "Qwen/Qwen2.5-32B-Instruct-AWQ",
+        "Qwen/Qwen2.5-Math-7B-Instruct",
     ]:
         task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
         query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
