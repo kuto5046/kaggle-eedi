@@ -351,7 +351,7 @@ class TrainPipeline:
             name=f"{self.cfg.exp_name}_{self.cfg.run_name}",
             group=self.cfg.exp_name,
             tags=self.cfg.tags,
-            mode="disabled",  # if self.cfg.debug else "online",
+            mode="disabled" if self.cfg.debug else "online",
             notes=self.cfg.notes,
         )
 
@@ -416,7 +416,7 @@ class TrainPipeline:
         )  # <-- just add one line
 
         trainer.can_return_loss = True  # peft modelを利用するとeval_lossが出力されないバグがあるため一時的な対応
-        # trainer.train()
+        trainer.train()
 
         # for ckpt_dir in (self.output_dir).glob(pattern="checkpoint-*"):
         #     shutil.rmtree(ckpt_dir)
