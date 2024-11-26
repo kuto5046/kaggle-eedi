@@ -1,0 +1,29 @@
+# @package _global_
+run_name: eval0
+use_fold: 0
+
+max_candidates: ${retrieve_num}
+retrieval_model:
+  name: Qwen/Qwen2.5-14B-Instruct
+  names:
+    - ${path.model_dir}/exp050/run7
+  use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: FEATURE_EXTRACTION
+
+llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  use: true
+  predict_type: top1 # "top1"  #"reranking"
+
+vllm:
+  sampling:
+    max_tokens: 1
+
+trainer:
+  batch_size: 8
