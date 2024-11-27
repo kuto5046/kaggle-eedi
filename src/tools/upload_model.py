@@ -48,6 +48,8 @@ TARGET_EXP_RUN_NAMES = [
     # "exp049/run3",
     # "exp049/run4",
     "exp050/run6",
+    "exp050/run18",
+    "exp050/run23",
 ]
 
 
