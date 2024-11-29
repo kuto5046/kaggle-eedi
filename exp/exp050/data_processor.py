@@ -1,5 +1,6 @@
 import gc
 import os
+import json
 import logging
 from typing import Union, Optional
 from pathlib import Path
@@ -343,6 +344,23 @@ def setup_quantized_model(base_model_name: str) -> PreTrainedModel:
     return model
 
 
+def get_base_model_name(model_name_or_path: str, use_lora: bool) -> str:
+    is_model_path = True if "exp" in model_name_or_path else False
+
+    # モデルパスではない場合はモデル名であるためそのまま返す
+    if not is_model_path:
+        return model_name_or_path
+
+    if use_lora:
+        with open(f"{model_name_or_path}/adapter_config.json") as f:
+            config = json.load(f)
+        return config["base_model_name_or_path"]
+    else:
+        with open(f"{model_name_or_path}/config.json") as f:
+            config = json.load(f)
+        return config["_name_or_path"]
+
+
 def setup_model_and_tokenizer(
     base_model_name: str,
     model_name: str,
@@ -422,12 +440,13 @@ def create_query_and_passage_input(
 def generate_candidates(
     df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig, retrieval_model_name_or_path: str
 ) -> np.ndarray:
-    base_model_name = cfg.retrieval_model.name
+    # base_model_name = cfg.retrieval_model.name
     use_lora = cfg.retrieval_model.use_lora
     lora_params = cfg.retrieval_model.lora
     is_quantized = cfg.retrieval_model.is_quantized
     batch_size = cfg.retrieval_model.batch_size
     use_sentence_transformers = cfg.retrieval_model.use_sentence_transformers
+    base_model_name = get_base_model_name(retrieval_model_name_or_path, use_lora)
     if use_sentence_transformers:
         sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
             retrieval_model_name_or_path, df, misconception_mapping
