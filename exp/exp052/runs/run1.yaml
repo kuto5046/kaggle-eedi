@@ -1,0 +1,21 @@
+# @package _global_
+run_name: run1
+notes: bestと同じ条件で異なるモデルを動かす
+
+retrieval_model:
+  name: BAAI/bge-en-icl
+  use_lora: true
+  is_quantized: true
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+
+max_candidates: 100
+negative_size: 3
+
+trainer:
+  epoch: 10
+  batch_size: 16
+  gradient_accumulation_steps: 1
+  gradient_checkpointing: true

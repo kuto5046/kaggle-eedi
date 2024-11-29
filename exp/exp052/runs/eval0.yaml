@@ -1,0 +1,14 @@
+# @package _global_
+run_name: eval${use_fold}
+use_fold: 0
+
+max_candidates: ${retrieve_num}
+retrieval_model:
+  names:
+    - ${path.model_dir}/exp049/run0
+
+
+llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  use: true
+  predict_type: reranking # "top1"  #"reranking"
