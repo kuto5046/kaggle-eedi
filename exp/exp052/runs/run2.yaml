@@ -1,10 +1,10 @@
 # @package _global_
-run_name: run1
-notes: exp050のbestの条件。ただしdatasetのunseen_rateが変わっている。
+run_name: run2
+notes: run1からnega_size=1にする
 use_fold: 0
 
 feature_version: ${exp_name}/run0
-negative_size: 2
+negative_size: 1
 use_mask_pad_token: true
 retrieval_model:
   name: Qwen/Qwen2.5-14B-Instruct

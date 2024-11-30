@@ -23,7 +23,7 @@ use_fold: 0
 ################
 # data process
 ################
-feature_version: ${exp_name}
+feature_version: ${exp_name}/${run_name}
 retrieve_num: 25
 max_candidates: 100  # 1つの学習データに紐づける負例の候補数
 split_rate: 0.9

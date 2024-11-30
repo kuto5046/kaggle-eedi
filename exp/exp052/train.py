@@ -298,6 +298,7 @@ class TrainPipeline:
 
         # hydraのrun_dirに同じpathが設定されているので自動でディレクトリが作成される
         self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
+        self.input_dir = cfg.path.output_dir / cfg.feature_version
 
         assert cfg.phase == "train", "TrainPipeline only supports train phase"
 
@@ -311,7 +312,7 @@ class TrainPipeline:
             self.cfg.run_name = "debug"
 
     def setup_dataset(self) -> None:
-        df = pl.read_csv(self.output_dir / "train.csv")
+        df = pl.read_csv(self.input_dir / "train.csv")
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         # group化することでQuestionと正例のペアがバッチ内で重複しないようにする
@@ -320,6 +321,11 @@ class TrainPipeline:
                 pl.col("PredictMisconceptionId").str.split(" ").cast(pl.List(pl.Int64)).alias("PredictMisconceptionId")
             )
             .explode("PredictMisconceptionId")
+            .join(
+                self.misconception_mapping.rename(lambda x: "Predict" + x),
+                on="PredictMisconceptionId",
+                how="left",  # inner joinだとpredict idがsortされてしまう
+            )
             .filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
             .group_by(
                 ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
@@ -361,8 +367,8 @@ class TrainPipeline:
 
     def training(self) -> None:
         lora_model, tokenizer = setup_model_and_tokenizer(
-            base_model_name=self.cfg.retrieval_model.name,
-            model_name=self.cfg.retrieval_model.name,
+            base_model_name=self.cfg.retrieval_model.base_name,
+            pretrained_path=self.cfg.retrieval_model.pretrained_path,
             is_quantized=self.cfg.retrieval_model.is_quantized,
             use_lora=self.cfg.retrieval_model.use_lora,
             lora_params=self.cfg.retrieval_model.lora,

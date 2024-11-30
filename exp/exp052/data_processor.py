@@ -374,7 +374,7 @@ def get_base_model_name(model_name_or_path: str, use_lora: bool) -> str:
 
 def setup_model_and_tokenizer(
     base_model_name: str,
-    pretrained_path: str,
+    pretrained_path: str | None,
     is_quantized: bool = False,
     use_lora: bool = False,
     lora_params: Optional[dict] = None,
@@ -519,7 +519,7 @@ class DataProcessor:
 
     def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
         tmp = df.with_row_index()
-        df1 = tmp.sample(fraction=self.cfg.split_rate, seed=self.cfg.seed)
+        df1 = tmp.sample(fraction=self.cfg.split_rate, shuffle=True, seed=self.cfg.seed)
         df2 = tmp.filter(~pl.col("index").is_in(df1["index"]))
         df1 = get_groupkfold(df1, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
         if len(df2) > 0:

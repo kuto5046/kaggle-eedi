@@ -1,8 +1,6 @@
 # @package _global_
 run_name: run0
 
-negative_size: 2
-use_mask_pad_token: true
 retrieval_model:
   base_name: dunzhang/stella_en_1.5B_v5
   # pretrained_path: ${path.model_dir}/exp050/run0
