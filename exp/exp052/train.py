@@ -83,14 +83,14 @@ class CustomCallback(TrainerCallback):
             model,
             tokenizer,
             self.valid["AllText"].to_list(),
-            model_name=self.cfg.retrieval_model.name,
+            model_name=self.cfg.retrieval_model.base_name,
             batch_size=self.cfg.trainer.batch_size,
         )
         passage_embs = encode(
             model,
             tokenizer,
             self.misconception_mapping["MisconceptionName"].to_list(),
-            model_name=self.cfg.retrieval_model.name,
+            model_name=self.cfg.retrieval_model.base_name,
             batch_size=self.cfg.trainer.batch_size,
         )
         similarity = cosine_similarity(query_embs, passage_embs)
@@ -240,7 +240,7 @@ class TripletSimCSEModel(nn.Module):
         super().__init__()
         self.model = model
         self.criterion = CustomMultipleNegativesRankingLoss()
-        self.retrieval_model_name = cfg.retrieval_model.name
+        self.retrieval_model_name = cfg.retrieval_model.base_name
 
     def sentence_embedding(self, hidden_state: torch.tensor, mask: torch.tensor) -> torch.tensor:
         return hidden_state[torch.arange(hidden_state.size(0)), mask.sum(1) - 1]
