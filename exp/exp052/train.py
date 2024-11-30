@@ -49,6 +49,9 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
 
 def calc_rank(oof: pl.DataFrame, max_rank: int = 1000) -> pl.DataFrame:
+    oof = oof.with_columns(
+        pl.col("PredictMisconceptionId").str.split(" ").cast(pl.List(pl.Int64)).alias("PredictMisconceptionId")
+    )
     oof1 = oof.filter(pl.col("MisconceptionId").is_in("PredictMisconceptionId"))
     oof2 = oof.filter(~pl.col("MisconceptionId").is_in("PredictMisconceptionId"))
 
@@ -368,7 +371,7 @@ class TrainPipeline:
     def training(self) -> None:
         lora_model, tokenizer = setup_model_and_tokenizer(
             base_model_name=self.cfg.retrieval_model.base_name,
-            pretrained_path=self.cfg.retrieval_model.pretrained_path,
+            pretrained_path=None,
             is_quantized=self.cfg.retrieval_model.is_quantized,
             use_lora=self.cfg.retrieval_model.use_lora,
             lora_params=self.cfg.retrieval_model.lora,
@@ -436,15 +439,10 @@ class TrainPipeline:
 
     def evaluate(self) -> None:
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
-        sorted_similarity = generate_candidates(
+        oof = generate_candidates(
             oof,
             self.misconception_mapping,
             self.cfg,
-            retrieval_model_name_or_path=str(self.output_dir),
-        )
-
-        oof = oof.with_columns(
-            pl.Series(sorted_similarity[:, : self.cfg.retrieve_num].tolist()).alias("PredictMisconceptionId")
         )
         recall = calc_recall(oof)
         mapk = calc_mapk(oof)
