@@ -140,8 +140,13 @@ def preprocess_misconception(df: pl.DataFrame, common_cols: list[str]) -> pl.Dat
 
 
 def calc_recall(df: pl.DataFrame) -> float:
-    df2 = df.with_columns(pl.col("PredictMisconceptionId").list.slice(0, 25).alias("PredictMisconceptionId"))
-    df2 = df2.explode("PredictMisconceptionId")
+    df2 = df.with_columns(
+        pl.col("PredictMisconceptionId")
+        .str.split(" ")
+        .list.slice(0, 25)
+        .list.eval(pl.element().cast(pl.Int32))
+        .alias("PredictMisconceptionId"),
+    ).explode("PredictMisconceptionId")
     return (
         df2.filter(pl.col("MisconceptionId") == pl.col("PredictMisconceptionId"))["QuestionId_Answer"].n_unique()
         / df2["QuestionId_Answer"].n_unique()
@@ -203,6 +208,13 @@ def calc_mapk(df: pl.DataFrame) -> float:
             on=["QuestionId_Answer"],
         )
         .sort(by=["QuestionId_Answer"])
+    )
+    # 文字列をリストに変換
+    agg_df = agg_df.with_columns(
+        pl.col("PredictMisconceptionId")
+        .str.split(" ")
+        .list.eval(pl.element().cast(pl.Int32))
+        .alias("PredictMisconceptionId")
     )
     return mapk(agg_df["MisconceptionId"].to_list(), agg_df["PredictMisconceptionId"].to_list())
 
@@ -302,10 +314,9 @@ def sentence_emb_similarity_by_sentence_transformers(
     return sorted_similarity
 
 
-def setup_lora_model(base_model: MODEL, model_name: str, lora_params: dict | None) -> MODEL:
-    is_tuned_model_path = True if "exp" in model_name else False
-    if is_tuned_model_path:
-        lora_model = PeftModel.from_pretrained(base_model, model_name)
+def setup_lora_model(base_model: MODEL, pretrained_path: str | None, lora_params: dict | None) -> MODEL:
+    if pretrained_path:
+        lora_model = PeftModel.from_pretrained(base_model, pretrained_path)
     else:
         lora_config = LoraConfig(
             **lora_params,
@@ -363,7 +374,7 @@ def get_base_model_name(model_name_or_path: str, use_lora: bool) -> str:
 
 def setup_model_and_tokenizer(
     base_model_name: str,
-    model_name: str,
+    pretrained_path: str,
     is_quantized: bool = False,
     use_lora: bool = False,
     lora_params: Optional[dict] = None,
@@ -380,7 +391,7 @@ def setup_model_and_tokenizer(
         )
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if use_lora:
-        model = setup_lora_model(model, model_name, lora_params)
+        model = setup_lora_model(model, pretrained_path, lora_params)
 
     return model, tokenizer
 
@@ -406,14 +417,15 @@ def compute_similarity(
 def create_query_and_passage_input(
     base_model_name: str, df: pl.DataFrame, misconception_mapping: pl.DataFrame, tokenizer: TOKENIZER
 ) -> tuple[list[str], list[str]]:
-    if base_model_name in [
-        "zeta-alpha-ai/Zeta-Alpha-E5-Mistral",
-        "dunzhang/stella_en_1.5B_v5",
-        "nvidia/NV-Embed-v2",
-        "Qwen/Qwen2.5-14B-Instruct",
-        "Qwen/Qwen2.5-32B-Instruct-AWQ",
-        "Qwen/Qwen2.5-Math-7B-Instruct",
-    ]:
+    if (
+        base_model_name
+        in [
+            "zeta-alpha-ai/Zeta-Alpha-E5-Mistral",
+            "dunzhang/stella_en_1.5B_v5",
+            "nvidia/NV-Embed-v2",
+        ]
+        or "Qwen" in base_model_name
+    ):
         task_description = "Given a math question and a misconcepte incorrect answer, please retrieve the most accurate reason for the misconception."
         query_texts = [get_detailed_instruct(task_description, query) for query in df["AllText"].to_list()]
         passage_texts = misconception_mapping["MisconceptionName"].to_list()
@@ -438,23 +450,25 @@ def create_query_and_passage_input(
 
 
 def generate_candidates(
-    df: pl.DataFrame, misconception_mapping: pl.DataFrame, cfg: DictConfig, retrieval_model_name_or_path: str
-) -> np.ndarray:
+    df: pl.DataFrame,
+    misconception_mapping: pl.DataFrame,
+    cfg: DictConfig,
+) -> pl.DataFrame:
     # base_model_name = cfg.retrieval_model.name
     use_lora = cfg.retrieval_model.use_lora
     lora_params = cfg.retrieval_model.lora
     is_quantized = cfg.retrieval_model.is_quantized
     batch_size = cfg.retrieval_model.batch_size
     use_sentence_transformers = cfg.retrieval_model.use_sentence_transformers
-    base_model_name = get_base_model_name(retrieval_model_name_or_path, use_lora)
+    base_model_name = cfg.retrieval_model.base_name
+    pretrained_path = cfg.retrieval_model.pretrained_path
+    max_candidates = cfg.max_candidates
     if use_sentence_transformers:
-        sorted_similarity = sentence_emb_similarity_by_sentence_transformers(
-            retrieval_model_name_or_path, df, misconception_mapping
-        )
+        sorted_similarity = sentence_emb_similarity_by_sentence_transformers(pretrained_path, df, misconception_mapping)
     else:
         model, tokenizer = setup_model_and_tokenizer(
             base_model_name=base_model_name,
-            model_name=retrieval_model_name_or_path,
+            pretrained_path=pretrained_path,
             is_quantized=is_quantized,
             use_lora=use_lora,
             lora_params=lora_params,
@@ -473,54 +487,14 @@ def generate_candidates(
         )
         del model, tokenizer
         clean_gpu()
-    return sorted_similarity
-
-
-def generate_candidates_all(
-    df: pl.DataFrame,
-    misconception_mapping: pl.DataFrame,
-    cfg: DictConfig,
-) -> pl.DataFrame:
-    """
-    Generate negative examples based on similarity calculations across different models.
-    """
-    model_names = cfg.retrieval_model.names
-    weights = cfg.retrieval_model.weights
-    max_candidates = cfg.max_candidates
-    preds = []
-    for retrieval_model_name in model_names:
-        print(retrieval_model_name)
-        sorted_similarity = generate_candidates(df, misconception_mapping, cfg, retrieval_model_name)
-        preds.append(sorted_similarity[:, : max_candidates + 10])  # Collect predictions for ensemble
-
-    # Ensemble predictions and add to the DataFrame
-    pred = ensemble_predictions(preds, weights)
-    df = df.with_columns(pl.Series(pred[:, :max_candidates].tolist()).alias("PredictMisconceptionId"))
-
+    df = df.with_columns(
+        pl.Series(sorted_similarity[:, :max_candidates].tolist()).alias("PredictMisconceptionId")
+    ).with_columns(
+        pl.col("PredictMisconceptionId")
+        .map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
+        .alias("PredictMisconceptionId")
+    )
     return df
-
-
-# https://www.kaggle.com/code/titericz/h-m-ensembling-how-to
-def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = None, top_k: int = 30) -> np.ndarray:
-    if weights is None:
-        weights = [1] * len(preds)
-
-    sample_size = preds[0].shape[0]
-    blend_results = []
-    for i in range(sample_size):
-        scores: dict[int, float] = {}
-        for j in range(len(preds)):
-            w = weights[j]
-            # 順位に応じて重みをつける
-            for k, pred_misconception_id in enumerate(preds[j][i]):
-                if pred_misconception_id in scores:
-                    scores[pred_misconception_id] += w / (k + 1)
-                else:
-                    scores[pred_misconception_id] = w / (k + 1)
-        # Sort dictionary by item weights
-        result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())  # [:top_k]
-        blend_results.append(result[:top_k])
-    return np.array(blend_results)
 
 
 class DataProcessor:
@@ -528,7 +502,7 @@ class DataProcessor:
         for key, value in cfg.path.items():
             cfg.path[key] = Path(value)
 
-        self.output_dir = cfg.path.feature_dir / cfg.feature_version
+        self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
         self.output_dir.mkdir(exist_ok=True, parents=True)
 
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
@@ -536,7 +510,10 @@ class DataProcessor:
         self.common_cols = ["QuestionId", "ConstructName", "SubjectName", "QuestionText", "CorrectAnswer"]
 
     def read_data(self) -> tuple[pl.DataFrame, pl.DataFrame]:
-        df = pl.read_csv(self.cfg.path.input_dir / f"{self.cfg.phase}.csv")
+        if self.cfg.phase == "test":
+            df = pl.read_csv(self.cfg.path.input_dir / "test.csv")
+        else:
+            df = pl.read_csv(self.cfg.path.input_dir / "train.csv")
         misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
         return df, misconception_mapping
 
@@ -564,29 +541,24 @@ class DataProcessor:
     def run(self) -> None:
         input_df, misconception = self.read_data()
         df = preprocess_table(input_df, self.common_cols)
-        if self.cfg.phase == "train":
+
+        if self.cfg.phase == "test":
+            df = generate_candidates(df, misconception, self.cfg)
+        else:
             # misconception情報(target)を取得
             pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
-
+            if self.cfg.phase == "valid":
+                df = df.filter(pl.col("fold") == self.cfg.use_fold)
             if self.cfg.debug:
                 df = df.sample(fraction=0.05, seed=self.cfg.seed)
             # 学習用の候補を生成する
-            sorted_similarity = generate_candidates(
-                df, misconception, self.cfg, retrieval_model_name_or_path=self.cfg.retrieval_model.name
-            )
-            df = df.with_columns(
-                pl.Series(sorted_similarity[:, : self.cfg.max_candidates].tolist()).alias("PredictMisconceptionId")
-            )
+            df = generate_candidates(df, misconception, self.cfg)
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
-            df = explode_candidates(df, misconception)
             df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
-        else:
-            df = generate_candidates_all(df, misconception, self.cfg)
-            df = explode_candidates(df, misconception)
 
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 

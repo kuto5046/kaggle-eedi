@@ -1,7 +1,7 @@
 ###############
 # experiment
 ###############
-exp_name: exp050
+exp_name: exp052
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
 notes: "emb modelを探索"
 tags: []
@@ -15,7 +15,7 @@ defaults:
 ##############
 seed: 2024
 debug: false
-phase: train  # train, test
+phase: train  # train, valid, test
 # cv
 n_splits: 5  # hold-outで使うので実質fold=0しか使わない
 use_fold: 0
@@ -32,12 +32,9 @@ split_rate: 0.9
 # model
 ################
 retrieval_model:
-  name: dunzhang/stella_en_1.5B_v5
+  base_name: dunzhang/stella_en_1.5B_v5
   # アンサンブルで利用するモデルのパス
-  names:
-    - ${retrieval_model.name}
-  weights:
-    - 1.0
+  pretrained_path: null
   use_lora: true
   use_sentence_transformers: false
   is_quantized: false
@@ -52,7 +49,7 @@ retrieval_model:
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
-  predict_type: "reranking"
+  predict_type: reranking
 
 # 推論用vllm
 vllm:

@@ -1,12 +1,11 @@
 # @package _global_
 run_name: run0
-notes: Qwen2.5-32BをembeddingモデルとしてQLoRA学習
-use_fold: 0
 
 negative_size: 2
 use_mask_pad_token: true
 retrieval_model:
-  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  base_name: dunzhang/stella_en_1.5B_v5
+  # pretrained_path: ${path.model_dir}/exp050/run0
   use_lora: true
   is_quantized: false
   use_sentence_transformers: false

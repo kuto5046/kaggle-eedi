@@ -15,9 +15,32 @@ from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import AutoTokenizer, PreTrainedTokenizer
 
-from .data_processor import TOKENIZER
+from .data_processor import TOKENIZER, calc_mapk, calc_recall
 
 LOGGER = logging.getLogger(__name__)
+
+
+# https://www.kaggle.com/code/titericz/h-m-ensembling-how-to
+def ensemble_predictions(preds: list[np.ndarray], weights: list[float] | None = None, top_k: int = 25) -> np.ndarray:
+    if weights is None:
+        weights = [1] * len(preds)
+
+    sample_size = preds[0].shape[0]
+    blend_results = []
+    for i in range(sample_size):
+        scores: dict[int, float] = {}
+        for j in range(len(preds)):
+            w = weights[j]
+            # 順位に応じて重みをつける
+            for k, pred_misconception_id in enumerate(preds[j][i]):
+                if pred_misconception_id in scores:
+                    scores[pred_misconception_id] += w / (k + 1)
+                else:
+                    scores[pred_misconception_id] = w / (k + 1)
+        # Sort dictionary by item weights
+        result = list(dict(sorted(scores.items(), key=lambda item: -item[1])).keys())  # [:top_k]
+        blend_results.append(result[:top_k])
+    return np.array(blend_results)
 
 
 class LLMPredictType(Enum):
@@ -218,10 +241,11 @@ def get_retrieval_text_for_top1(misconception_ids: np.ndarray, id2name_mapping: 
 
 
 def get_retrieval_text(
-    misconception_ids: list[int], id2name_mapping: dict[int, str], use_misconception_id: bool
+    misconception_ids_string: str, id2name_mapping: dict[int, str], use_misconception_id: bool
 ) -> str:
     # 並びをrandomにする
     # misconception_ids = random.sample(misconception_ids, len(misconception_ids))
+    misconception_ids = [int(id) for id in misconception_ids_string.split(" ")]
     retrieval = ""
     for i, id in enumerate(misconception_ids):
         name = id2name_mapping[id]
@@ -251,7 +275,11 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
         assert cfg.vllm.sampling.n == 1
         try:
             _preds = parse_inference(full_responses, cfg)
-            df = df.with_columns(pl.Series(_preds).alias("PredictMisconceptionId"))
+            df = df.with_columns(
+                pl.Series(_preds)
+                .map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
+                .alias("PredictMisconceptionId")
+            )
         except:
             print("Failed to parse inference")
 
@@ -263,7 +291,7 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
             ],
         )
 
-        predict_misconception_ids = np.array(df["PredictMisconceptionId"].to_list())
+        predict_misconception_ids = np.stack(df["PredictMisconceptionId"].str.split(" ").to_list()).astype(int)
         survivors = predict_misconception_ids[:, -1:]  # 候補の中で最も類似度が大きいもの
 
         # 一気に25件を扱えないから3回に分けて処理している
@@ -292,7 +320,11 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
             ix = predict_misconception_ids[i]
             llm_choice = survivors[i, 0]
             results.append([llm_choice] + [x for x in ix if x != llm_choice])
-        df = df.with_columns(pl.Series(results).alias("PredictMisconceptionId"))
+        df = df.with_columns(
+            pl.Series(results)
+            .map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
+            .alias("PredictMisconceptionId")
+        )
     else:
         raise ValueError(f"Invalid predict_type: {cfg.llm_model.predict_type}")
 
@@ -334,22 +366,40 @@ class InferencePipeline:
 
         seed_everything(cfg.seed, workers=True)  # data loaderのworkerもseedする
         self.cfg = cfg
+        self.output_dir = cfg.path.output_dir / cfg.exp_name / cfg.run_name
         # assert cfg.phase == "test", "InferencePipeline only supports test phase"
 
     def setup_dataset(self) -> tuple[pl.DataFrame, pl.DataFrame]:
-        df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "test.csv")
-        misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
-
-        group_cols = df.drop(["PredictMisconceptionId", "PredictMisconceptionName"]).columns
-        df = df.group_by(group_cols, maintain_order=True).agg(
-            pl.col("PredictMisconceptionId").alias("PredictMisconceptionId")
+        dfs = []
+        preds = []
+        for path in self.cfg.ensemble.paths:
+            df = pl.read_csv(Path(path) / f"{self.cfg.phase}.csv")
+            df = df.with_columns(
+                pl.col("PredictMisconceptionId")
+                .str.split(" ")
+                .list.eval(pl.element().cast(pl.Int32))
+                .alias("PredictMisconceptionId")
+            )
+            # TOOD: 文字列からlist変換
+            dfs.append(df)
+            preds.append(df["PredictMisconceptionId"].to_numpy())
+        pred = ensemble_predictions(preds, weights=self.cfg.ensemble.weights, top_k=self.cfg.max_candidates)
+        df = dfs[0]
+        df = df.with_columns(
+            pl.Series(pred)
+            .map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
+            .alias("PredictMisconceptionId")
         )
+
+        misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
         return df, misconception_mapping
 
     def make_submission(self, df: pl.DataFrame) -> None:
         submission = (
             df.with_columns(
                 pl.col("PredictMisconceptionId")
+                .str.split(" ")
+                .list.slice(0, 25)
                 .map_elements(lambda x: " ".join(map(str, x)), return_dtype=pl.String)
                 .alias("MisconceptionId")
             )
@@ -366,9 +416,21 @@ class InferencePipeline:
     def run(self) -> None:
         # retrieval
         df, misconception_mapping = self.setup_dataset()
+        if self.cfg.phase == "valid":
+            df = df.sample(n=100, seed=self.cfg.seed)
+            LOGGER.info("retrieval")
+            LOGGER.info(f"Recall: {calc_recall(df)}")
+            LOGGER.info(f"MAP@K: {calc_mapk(df)}")
+
         if self.cfg.llm_model.use:
             # llm inference
             df = llm_inference(df, misconception_mapping, self.cfg)
+
+        if self.cfg.phase == "valid":
+            LOGGER.info("llm")
+            LOGGER.info(f"Recall: {calc_recall(df)}")
+            LOGGER.info(f"MAP@K: {calc_mapk(df)}")
+
         self.make_submission(df)
 
 
