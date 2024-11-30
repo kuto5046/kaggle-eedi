@@ -519,7 +519,7 @@ class DataProcessor:
 
     def add_fold(self, df: pl.DataFrame) -> pl.DataFrame:
         tmp = df.with_row_index()
-        df1 = tmp.sample(fraction=self.cfg.split_rate)
+        df1 = tmp.sample(fraction=self.cfg.split_rate, seed=self.cfg.seed)
         df2 = tmp.filter(~pl.col("index").is_in(df1["index"]))
         df1 = get_groupkfold(df1, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
         if len(df2) > 0:

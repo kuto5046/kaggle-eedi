@@ -25,6 +25,9 @@ services:
       - type: bind
         source: /mnt/ssd/kaggle-eedi/output/  # TODO: ここは適宜変更
         target: /home/user/work/output/
+      - type: bind
+        source: /mnt/ssd/.cache/  # TODO: ここは適宜変更
+        target: /home/user/.cache/
     ports:
       - 8889:8888
       - 8502:8501
