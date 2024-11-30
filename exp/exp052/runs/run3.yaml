@@ -7,7 +7,7 @@ feature_version: ${exp_name}/run0
 negative_size: 1
 use_mask_pad_token: true
 retrieval_model:
-  name: Qwen/Qwen2.5-14B-Instruct
+  base_name: Qwen/Qwen2.5-14B-Instruct
   use_lora: true
   is_quantized: true
   use_sentence_transformers: false
