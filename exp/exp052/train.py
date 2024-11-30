@@ -311,12 +311,16 @@ class TrainPipeline:
             self.cfg.run_name = "debug"
 
     def setup_dataset(self) -> None:
-        df = pl.read_csv(self.cfg.path.feature_dir / self.cfg.feature_version / "train.csv")
+        df = pl.read_csv(self.output_dir / "train.csv")
         self.misconception_mapping = pl.read_csv(self.cfg.path.input_dir / "misconception_mapping.csv")
 
         # group化することでQuestionと正例のペアがバッチ内で重複しないようにする
         df = (
-            df.filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
+            df.with_columns(
+                pl.col("PredictMisconceptionId").str.split(" ").cast(pl.List(pl.Int64)).alias("PredictMisconceptionId")
+            )
+            .explode("PredictMisconceptionId")
+            .filter(pl.col("MisconceptionId") != pl.col("PredictMisconceptionId"))
             .group_by(
                 ["QuestionId_Answer", "AllText", "MisconceptionName", "MisconceptionId", "fold"], maintain_order=True
             )
