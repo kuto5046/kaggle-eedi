@@ -23,7 +23,7 @@ from transformers import (
     PreTrainedTokenizerFast,
 )
 from sentence_transformers import SentenceTransformer
-from sklearn.model_selection import GroupKFold, StratifiedKFold
+from sklearn.model_selection import KFold, StratifiedKFold
 from sklearn.metrics.pairwise import cosine_similarity
 
 # os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -233,15 +233,34 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
     return train
 
 
-def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int) -> pl.DataFrame:
-    kf = GroupKFold(n_splits=n_splits)
-    cv = list(kf.split(X=train, groups=train[group_col].to_numpy()))
+def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int, seed: int) -> pl.DataFrame:
+    group_ids = train[group_col].unique(maintain_order=True)
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    cv = []
+    for train_idx, valid_idx in kf.split(X=group_ids):
+        new_train_idx = (
+            train.filter(train[group_col].is_in(group_ids[train_idx])).select(pl.col("index")).to_numpy().flatten()
+        )
+        new_valid_idx = (
+            train.filter(train[group_col].is_in(group_ids[valid_idx])).select(pl.col("index")).to_numpy().flatten()
+        )
+
+        cv.append((new_train_idx, new_valid_idx))
     return get_fold(train, cv)
 
 
 def get_stratifiedkfold(train: pl.DataFrame, target_col: str, n_splits: int, seed: int) -> pl.DataFrame:
     kf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    cv = list(kf.split(X=train, y=train[target_col].to_numpy()))
+    cv = []
+    for train_idx, valid_idx in kf.split(X=train, y=train[target_col].to_numpy()):
+        new_train_idx = (
+            train.filter(pl.arange(0, len(train)).is_in(train_idx)).select(pl.col("index")).to_numpy().flatten()
+        )
+        new_valid_idx = (
+            train.filter(pl.arange(0, len(train)).is_in(valid_idx)).select(pl.col("index")).to_numpy().flatten()
+        )
+        cv.append((new_train_idx, new_valid_idx))
+    # cv = list(kf.split(X=train, y=train[target_col].to_numpy()))
     return get_fold(train, cv)
 
 
@@ -521,7 +540,7 @@ class DataProcessor:
         tmp = df.with_row_index()
         df1 = tmp.sample(fraction=self.cfg.split_rate, shuffle=True, seed=self.cfg.seed)
         df2 = tmp.filter(~pl.col("index").is_in(df1["index"]))
-        df1 = get_groupkfold(df1, group_col="MisconceptionId", n_splits=self.cfg.n_splits)
+        df1 = get_groupkfold(df1, group_col="MisconceptionId", n_splits=self.cfg.n_splits, seed=self.cfg.seed)
         if len(df2) > 0:
             df2 = get_stratifiedkfold(df2, target_col="MisconceptionId", n_splits=self.cfg.n_splits, seed=self.cfg.seed)
             all_df = pl.concat([df1, df2])
