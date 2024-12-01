@@ -227,7 +227,7 @@ def get_fold(_train: pl.DataFrame, cv: list[tuple[np.ndarray, np.ndarray]]) -> p
     train = train.with_columns(pl.lit(-1).alias("fold"))
     for fold, (train_idx, valid_idx) in enumerate(cv):
         train = train.with_columns(
-            pl.when(pl.arange(0, len(train)).is_in(valid_idx)).then(fold).otherwise(pl.col("fold")).alias("fold")
+            pl.when(pl.col("index").is_in(valid_idx)).then(fold).otherwise(pl.col("fold")).alias("fold")
         )
     LOGGER.info(train.group_by("fold").len().sort("fold"))
     return train
@@ -244,7 +244,6 @@ def get_groupkfold(train: pl.DataFrame, group_col: str, n_splits: int, seed: int
         new_valid_idx = (
             train.filter(train[group_col].is_in(group_ids[valid_idx])).select(pl.col("index")).to_numpy().flatten()
         )
-
         cv.append((new_train_idx, new_valid_idx))
     return get_fold(train, cv)
 
