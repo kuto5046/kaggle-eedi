@@ -371,7 +371,7 @@ class TrainPipeline:
     def training(self) -> None:
         lora_model, tokenizer = setup_model_and_tokenizer(
             base_model_name=self.cfg.retrieval_model.base_name,
-            pretrained_path=None,
+            pretrained_path=self.cfg.retrieval_model.pretrained_path,
             is_quantized=self.cfg.retrieval_model.is_quantized,
             use_lora=self.cfg.retrieval_model.use_lora,
             lora_params=self.cfg.retrieval_model.lora,
@@ -439,6 +439,7 @@ class TrainPipeline:
 
     def evaluate(self) -> None:
         oof = self.valid.select(["QuestionId_Answer", "AllText", "MisconceptionId"]).unique()
+        self.cfg.retrieval_model.pretrained_path = str(self.output_dir)
         oof = generate_candidates(
             oof,
             self.misconception_mapping,

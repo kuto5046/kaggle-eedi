@@ -34,7 +34,7 @@ split_rate: 0.9
 retrieval_model:
   base_name: dunzhang/stella_en_1.5B_v5
   # アンサンブルで利用するモデルのパス
-  pretrained_path: ${path.output_dir}/${exp_name}/${run_name}
+  pretrained_path: null #${path.output_dir}/${exp_name}/${run_name}
   use_lora: true
   use_sentence_transformers: false
   is_quantized: false
