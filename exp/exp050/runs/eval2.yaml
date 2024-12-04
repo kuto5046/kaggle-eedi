@@ -1,5 +1,5 @@
 # @package _global_
-run_name: eval1
+run_name: eval2
 use_fold: 0
 
 max_candidates: ${retrieve_num}
@@ -23,7 +23,7 @@ retrieval_model:
     task_type: FEATURE_EXTRACTION
 
 llm_model:
-  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  name: KirillR/QwQ-32B-Preview-AWQ
   use: true
   predict_type: reranking # "top1"  #"reranking"
 
