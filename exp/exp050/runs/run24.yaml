@@ -1,6 +1,6 @@
 # @package _global_
-run_name: run0
-notes: Qwen2.5-32BをembeddingモデルとしてQLoRA学習
+run_name: run24
+notes: Qwen2.5-32BをembeddingモデルとしてQLoRA学習小さく
 use_fold: 0
 
 negative_size: 2
@@ -11,8 +11,8 @@ retrieval_model:
   is_quantized: false
   use_sentence_transformers: false
   lora:
-    r: 64
-    lora_alpha: 128
+    r: 8
+    lora_alpha: 16
     lora_dropout: 0.05
     task_type: DEFAULT
 
