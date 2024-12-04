@@ -1,15 +1,15 @@
 # @package _global_
 run_name: run6
-notes: 32b
+notes: 32b awqはautoawqがkaggleで動かないのでbnb4bitでやる
 use_fold: 0
 
 feature_version: ${exp_name}/run0
 negative_size: 1
 use_mask_pad_token: true
 retrieval_model:
-  base_name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  base_name: Qwen/Qwen2.5-32B-Instruct
   use_lora: true
-  is_quantized: false
+  is_quantized: true
   use_sentence_transformers: false
   lora:
     r: 64
@@ -19,6 +19,6 @@ retrieval_model:
 
 trainer:
   epoch: 5
-  batch_size: 16
+  batch_size: 32
   learning_rate: 1e-4
   weight_decay: 0.01
