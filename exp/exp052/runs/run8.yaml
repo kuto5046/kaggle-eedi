@@ -1,6 +1,6 @@
 # @package _global_
-run_name: run6
-notes: 32b awqはautoawqがkaggleで動かないのでbnb4bitでやる
+run_name: run8
+notes: 32b awqはautoawqがkaggleで動かないのでbnb4bitでやる 64batch 10epoch
 use_fold: 0
 
 feature_version: ${exp_name}/run0
@@ -18,7 +18,7 @@ retrieval_model:
     task_type: DEFAULT
 
 trainer:
-  epoch: 5
-  batch_size: 32
+  epoch: 10
+  batch_size: 64
   learning_rate: 1e-4
   weight_decay: 0.01

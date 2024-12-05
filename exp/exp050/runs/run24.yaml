@@ -1,24 +1,24 @@
 # @package _global_
-run_name: run6
-notes: 32b awqはautoawqがkaggleで動かないのでbnb4bitでやる
+run_name: run24
+notes: Qwen2.5-32BをembeddingモデルとしてQLoRA学習小さく
 use_fold: 0
 
-feature_version: ${exp_name}/run0
-negative_size: 1
+negative_size: 2
 use_mask_pad_token: true
 retrieval_model:
-  base_name: Qwen/Qwen2.5-32B-Instruct
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use_lora: true
-  is_quantized: true
+  is_quantized: false
   use_sentence_transformers: false
   lora:
-    r: 64
-    lora_alpha: 128
+    r: 8
+    lora_alpha: 16
     lora_dropout: 0.05
     task_type: DEFAULT
 
 trainer:
   epoch: 5
-  batch_size: 32
+  batch_size: 16
   learning_rate: 1e-4
   weight_decay: 0.01
+  num_warmup_steps: 100
