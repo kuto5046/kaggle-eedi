@@ -303,6 +303,7 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
             candidate_misconception_ids = np.concatenate(
                 [predict_misconception_ids[:, -8 * (i + 1) - 1 : -8 * i - 1], survivors], axis=1
             )
+            max_rank = candidate_misconception_ids.shape[1]
             df = add_top1_prompt(df, misconception, tokenizer, candidate_misconception_ids)
             full_responses = llm.generate(
                 prompts=df["Prompt"].to_numpy(),
@@ -310,9 +311,14 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
                 # lora_request=LoRARequest("adapter", 1, self.output_dir),
                 use_tqdm=True,
             )
-            responses = [x.outputs[0].text for x in full_responses]
+            # 出力がおかしい場合は候補の一番類似度が高いものを選択する
+            # 想定外の出力があるので、それを考慮している
+            responses = [
+                int(x.outputs[0].text) if x.outputs[0].text.isdigit() and 0 <= int(x.outputs[0].text) < max_rank else 0
+                for x in full_responses
+            ]
             df = df.with_columns(pl.Series(responses).alias("response"))
-            llm_choices = df.select(["response"]).to_numpy().astype(int)
+            llm_choices = df.select(["response"]).to_numpy()
 
             # llmが選択したidを追加する
             survivors = np.array([cids[best] for best, cids in zip(llm_choices, candidate_misconception_ids)]).reshape(
@@ -419,8 +425,8 @@ class InferencePipeline:
         # retrieval
         df, misconception_mapping = self.setup_dataset()
         if self.cfg.phase == "valid":
-            df = df.sample(n=100, seed=self.cfg.seed)
-            LOGGER.info("retrieval")
+            # df = df.sample(n=100, seed=self.cfg.seed)
+            LOGGER.info(f"retrieval num_sample:{len(df)}")
             LOGGER.info(f"Recall: {calc_recall(df)}")
             LOGGER.info(f"MAP@K: {calc_mapk(df)}")
 
