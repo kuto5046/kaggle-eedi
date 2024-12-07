@@ -257,12 +257,8 @@ def get_retrieval_text(
 
 
 def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig) -> pl.DataFrame:
-    # TODO: ここをなんとかする
     llm = vllm.LLM(**cfg.vllm.model)
-    if cfg.llm_model.name == "KirillR/QwQ-32B-Preview-AWQ":
-        tokenizer = AutoTokenizer.from_pretrained("Qwen/QwQ-32B-Preview")
-    else:
-        tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model.name)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.llm_model.name)
     if cfg.llm_model.predict_type == LLMPredictType.Reranking.value:
         df = add_reranking_prompt(df, misconception, tokenizer)
         sampling_params = vllm.SamplingParams(**cfg.vllm.sampling)
