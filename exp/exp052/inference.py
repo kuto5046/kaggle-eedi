@@ -295,10 +295,17 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
         survivors = predict_misconception_ids[:, -1:]  # 候補の中で最も類似度が大きいもの
 
         # 一気に25件を扱えないから3回に分けて処理している
-        for i in range(3):
-            candidate_misconception_ids = np.concatenate(
-                [predict_misconception_ids[:, -8 * (i + 1) - 1 : -8 * i - 1], survivors], axis=1
-            )
+        num_candidates = 9
+        num_split = cfg.max_candidates // num_candidates + 1
+        for i in range(num_split):
+            # -9, -1
+            # -17, -9
+            # ..
+            # -49, -41
+            start = (-num_candidates + 1) * (i + 1) - 1
+            end = (-num_candidates + 1) * i - 1
+            print(i, start, end)
+            candidate_misconception_ids = np.concatenate([predict_misconception_ids[:, start:end], survivors], axis=1)
             max_rank = candidate_misconception_ids.shape[1]
             df = add_top1_prompt(df, misconception, tokenizer, candidate_misconception_ids)
             full_responses = llm.generate(

@@ -1,0 +1,38 @@
+# @package _global_
+run_name: sub10
+notes: 72B
+phase: test
+max_candidates: 25  # アンサンブル用に少し大きめに
+feature_version: ${exp_name}/sub7
+retrieval_model:
+  base_name: Qwen/Qwen2.5-32B-Instruct
+  pretrained_path: ${path.model_dir}/exp052/run8
+  use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
+  batch_size: 4
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: DEFAULT
+
+ensemble:
+  paths:
+    - ${path.output_dir}/${exp_name}/${run_name}
+  weights:
+    - 1
+
+llm_model:
+  name: Qwen/Qwen2.5-72B-Instruct-AWQ
+  use: true
+  predict_type: top1
+
+vllm:
+  model:
+    gpu_memory_utilization: 0.98
+    cpu_offload_gb: 8
+    swap_space: 1
+    max_num_seqs: 20
+  sampling:
+    max_tokens: 1
