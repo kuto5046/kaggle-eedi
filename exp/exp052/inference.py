@@ -298,10 +298,6 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
         num_candidates = 9
         num_split = cfg.max_candidates // num_candidates + 1
         for i in range(num_split):
-            # -9, -1
-            # -17, -9
-            # ..
-            # -49, -41
             start = (-num_candidates + 1) * (i + 1) - 1
             end = (-num_candidates + 1) * i - 1
             print(i, start, end)
