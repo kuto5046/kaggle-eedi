@@ -1,0 +1,25 @@
+# @package _global_
+run_name: sub5
+phase: test
+max_candidates: 30  # アンサンブル用に少し大きめに
+
+ensemble:
+  paths:
+    - ${path.output_dir}/${exp_name}/sub0
+    - ${path.output_dir}/${exp_name}/sub1
+    - ${path.output_dir}/${exp_name}/sub2
+    - ${path.output_dir}/${exp_name}/sub3
+  weights:
+    - 2
+    - 2
+    - 1
+    - 2
+
+llm_model:
+  name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  use: true
+  predict_type: top1 # reranking
+
+vllm:
+  sampling:
+    max_tokens: 1

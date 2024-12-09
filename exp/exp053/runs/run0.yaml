@@ -1,0 +1,14 @@
+# @package _global_
+run_name: run0
+
+retrieval_model:
+  base_name: dunzhang/stella_en_1.5B_v5
+  # pretrained_path: ${path.model_dir}/exp050/run0
+  use_lora: true
+  is_quantized: false
+  use_sentence_transformers: false
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: DEFAULT

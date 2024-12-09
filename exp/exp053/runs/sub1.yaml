@@ -1,0 +1,17 @@
+# @package _global_
+run_name: sub1
+phase: test
+max_candidates: 30  # アンサンブル用に少し大きめに
+
+retrieval_model:
+  base_name: Qwen/Qwen2.5-14B-Instruct
+  pretrained_path: ${path.model_dir}/exp050/run6
+  use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
+  batch_size: 32
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: FEATURE_EXTRACTION
