@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp053
+exp_name: exp054
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "5foldでcandidate generation用のモデルを作成"
+notes: 2nd stage
 tags: []
 
 defaults:

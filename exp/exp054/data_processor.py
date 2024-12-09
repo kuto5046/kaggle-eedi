@@ -560,23 +560,24 @@ class DataProcessor:
         input_df, misconception = self.read_data()
         df = preprocess_table(input_df, self.common_cols)
 
-        if self.cfg.phase == "test":
-            df = generate_candidates(df, misconception, self.cfg)
-        else:
+        if self.cfg.phase == "train":
             # misconception情報(target)を取得
             pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
-            if self.cfg.phase == "valid":
-                df = df.filter(pl.col("fold") == self.cfg.use_fold)
-            if self.cfg.debug:
-                df = df.sample(fraction=0.05, seed=self.cfg.seed)
-            # 学習用の候補を生成する
-            df = generate_candidates(df, misconception, self.cfg)
+            df_list = []
+            for fold in range(self.cfg.n_splits):
+                valid_df = df.filter(pl.col("fold") == fold)
+                self.cfg.retrieval_model.pretrained_path = self.cfg.output_dir / f"exp053/run{fold}"
+                valid_df = generate_candidates(valid_df, misconception, self.cfg)
+                df_list.append(valid_df)
+            df = pl.concat(df_list).sort("QuestionId_Answer")
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
             df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
+        else:
+            raise ValueError(f"{self.cfg.phase=} is not supported")
 
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
