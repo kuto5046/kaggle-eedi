@@ -1,10 +1,10 @@
 # @package _global_
-run_name: sub7
+run_name: sub0
 phase: test
 max_candidates: 25  # アンサンブル用に少し大きめに
 retrieval_model:
   base_name: Qwen/Qwen2.5-32B-Instruct
-  pretrained_path: ${path.model_dir}/exp052/run8
+  pretrained_path: ${path.model_dir}/exp054/run0
   use_lora: true
   is_quantized: true
   use_sentence_transformers: false
