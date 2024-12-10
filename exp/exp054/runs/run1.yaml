@@ -1,6 +1,6 @@
 # @package _global_
-run_name: run0
-notes: 2nd stage max_candidates=10 1epoch lr=1e-5
+run_name: run1
+notes: 2nd stage max_candidates=10 1epoch lr=1e-5 no scheduler
 use_fold: 0
 
 feature_version: ${exp_name}/run0
@@ -18,4 +18,8 @@ trainer:
   epoch: 1
   batch_size: 64
   learning_rate: 1e-5
+  lr_scheduler_type: constant
   weight_decay: 0.01
+  save_steps: 0.5  # training_step全体の何%ごとに保存するか
+  logging_steps: 0.5  # training_step全体の何%ごとにログを出力するか
+  eval_steps: 0.5  # training_step全体の何%ごとに評価するか

@@ -375,6 +375,7 @@ class TrainPipeline:
             is_quantized=self.cfg.retrieval_model.is_quantized,
             use_lora=self.cfg.retrieval_model.use_lora,
             lora_params=self.cfg.retrieval_model.lora,
+            is_trainable=True,
         )
         model = TripletSimCSEModel(lora_model, self.cfg)
 

@@ -332,9 +332,9 @@ def sentence_emb_similarity_by_sentence_transformers(
     return sorted_similarity
 
 
-def setup_lora_model(base_model: MODEL, pretrained_path: str | None, lora_params: dict | None) -> MODEL:
+def setup_lora_model(base_model: MODEL, pretrained_path: str | None, lora_params: dict | None, is_trainable: bool=False) -> MODEL:
     if pretrained_path:
-        lora_model = PeftModel.from_pretrained(base_model, pretrained_path)
+        lora_model = PeftModel.from_pretrained(base_model, pretrained_path, is_trainable=is_trainable)
     else:
         lora_config = LoraConfig(
             **lora_params,
@@ -396,6 +396,7 @@ def setup_model_and_tokenizer(
     is_quantized: bool = False,
     use_lora: bool = False,
     lora_params: Optional[dict] = None,
+    is_trainable: bool = False,
 ) -> tuple[Union[MODEL, PeftModel], TOKENIZER]:
     """
     Unified model and tokenizer setup function.
@@ -409,7 +410,7 @@ def setup_model_and_tokenizer(
         )
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if use_lora:
-        model = setup_lora_model(model, pretrained_path, lora_params)
+        model = setup_lora_model(model, pretrained_path, lora_params, is_trainable=is_trainable)
 
     return model, tokenizer
 
@@ -569,7 +570,7 @@ class DataProcessor:
             df_list = []
             for fold in range(self.cfg.n_splits):
                 valid_df = df.filter(pl.col("fold") == fold)
-                self.cfg.retrieval_model.pretrained_path = self.cfg.output_dir / f"exp053/run{fold}"
+                self.cfg.retrieval_model.pretrained_path = self.cfg.path.output_dir / f"exp053/run{fold}"
                 valid_df = generate_candidates(valid_df, misconception, self.cfg)
                 df_list.append(valid_df)
             df = pl.concat(df_list).sort("QuestionId_Answer")
