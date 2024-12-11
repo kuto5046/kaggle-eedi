@@ -4,7 +4,7 @@ phase: test
 max_candidates: 25  # アンサンブル用に少し大きめに
 retrieval_model:
   base_name: Qwen/Qwen2.5-32B-Instruct
-  pretrained_path: ${path.model_dir}/exp054/run0
+  pretrained_path: ${path.model_dir}/exp053/run0
   use_lora: true
   is_quantized: true
   use_sentence_transformers: false
@@ -24,6 +24,7 @@ ensemble:
 llm_model:
   # name: KirillR/QwQ-32B-Preview-AWQ
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  pretrained_path: ${path.output_dir}/${exp_name}/run0
   use: true
   predict_type: top1
 

@@ -48,6 +48,7 @@ retrieval_model:
 
 llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
+  pretrained_path: ${path.output_dir}/${exp_name}/${run_name}
   use: true
   predict_type: reranking
   lora:
@@ -68,7 +69,8 @@ vllm:
     max_model_len: 3000
     disable_log_stats: true
     seed: ${seed}
-    enable_lora: false  # LoRAの後付けを可能にする
+    enable_lora: true  # LoRAの後付けを可能にする
+    max_lora_rank: ${llm_model.lora.r}
 
   sampling:
     n: 1 # Number of output sequences to return for each prompt.

@@ -81,7 +81,7 @@ class TrainPipeline:
             self.tokenizer.apply_chat_template(
                 [
                     {"role": "user", "content": row["Prompt"]},
-                    {"role": "assistant", "content": f'{row["label"]}'},
+                    {"role": "assistant", "content": f'{row["MisconceptionName"]}'},
                 ],
                 tokeadd_generation_prompt=True,
             )
@@ -92,7 +92,7 @@ class TrainPipeline:
             self.tokenizer.apply_chat_template(
                 [
                     {"role": "user", "content": row["Prompt"]},
-                    {"role": "assistant", "content": f'{row["label"]}'},
+                    {"role": "assistant", "content": f'{row["MisconceptionName"]}'},
                 ],
                 tokeadd_generation_prompt=True,
             )

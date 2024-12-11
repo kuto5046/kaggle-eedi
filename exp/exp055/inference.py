@@ -14,8 +14,9 @@ from vllm import RequestOutput
 from lightning import seed_everything
 from omegaconf import DictConfig
 from transformers import AutoTokenizer, PreTrainedTokenizer
+from vllm.lora.request import LoRARequest
 
-from .data_processor import TOKENIZER, calc_mapk, calc_recall
+from .data_processor_for_llm_train import TOKENIZER, calc_mapk, calc_recall
 
 LOGGER = logging.getLogger(__name__)
 
@@ -307,7 +308,7 @@ def llm_inference(df: pl.DataFrame, misconception: pl.DataFrame, cfg: DictConfig
             full_responses = llm.generate(
                 prompts=df["Prompt"].to_numpy(),
                 sampling_params=sampling_params,
-                # lora_request=LoRARequest("adapter", 1, self.output_dir),
+                lora_request=LoRARequest("adapter", 1, lora_path=cfg.llm_model.pretrained_path),
                 use_tqdm=True,
             )
             # 出力がおかしい場合は候補の一番類似度が高いものを選択する
@@ -424,7 +425,7 @@ class InferencePipeline:
         # retrieval
         df, misconception_mapping = self.setup_dataset()
         if self.cfg.phase == "valid":
-            # df = df.sample(n=100, seed=self.cfg.seed)
+            df = df.sample(n=100, seed=self.cfg.seed)
             LOGGER.info(f"retrieval num_sample:{len(df)}")
             LOGGER.info(f"Recall: {calc_recall(df)}")
             LOGGER.info(f"MAP@K: {calc_mapk(df)}")
