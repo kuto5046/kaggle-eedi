@@ -3,22 +3,19 @@ run_name: run0
 notes: 1st stage
 use_fold: 0
 
-feature_version: exp052/run0
-negative_size: 1
-use_mask_pad_token: true
 retrieval_model:
   base_name: Qwen/Qwen2.5-32B-Instruct
+  pretrained_model_name: ${path.output_dir}/exp054/run0
   use_lora: true
   is_quantized: true
   use_sentence_transformers: false
   lora:
-    r: 64
-    lora_alpha: 128
+    r: 8
+    lora_alpha: 16
     lora_dropout: 0.05
     task_type: DEFAULT
 
 trainer:
-  epoch: 10
-  batch_size: 64
+  epoch: 1
+  batch_size: 1
   learning_rate: 1e-4
-  weight_decay: 0.01

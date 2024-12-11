@@ -1,9 +1,9 @@
 ###############
 # experiment
 ###############
-exp_name: exp053
+exp_name: exp055
 run_name: run0  # 互換性を維持できてる場合インクリメントしても良い(parameterのみ変えて実行するときなど)
-notes: "5foldでcandidate generation用のモデルを作成"
+notes: LLMをFT
 tags: []
 
 defaults:
@@ -50,6 +50,10 @@ llm_model:
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
   use: true
   predict_type: reranking
+  lora:
+    r: 64
+    lora_alpha: 256
+    lora_dropout: 0.05
 
 # 推論用vllm
 vllm:
@@ -82,17 +86,19 @@ shuffle_dataset: false
 use_mask_pad_token: false
 
 trainer:
-  epoch: 10
-  batch_size: 64
+  epoch: 2
+  batch_size: 1
   gradient_accumulation_steps: 1
   gradient_checkpointing: true
-  learning_rate: 5e-5
-  weight_decay: 0.1
+  learning_rate: 2e-5
+  weight_decay: 0.01
   warmup_ratio: 0.1
-  warmup_steps: 0
   # https://huggingface.co/docs/transformers/main/en/main_classes/optimizer_schedules#transformers.SchedulerType
   lr_scheduler_type: cosine
-  save_strategy: "no"  # custom callbackで手動保存する
+  optim: paged_adamw_8bit
+  fp16: true
+  bf16: false
+  save_strategy: steps
   save_steps: 0.2  # training_step全体の何%ごとに保存するか
   save_total_limit: 1  # 保存するcheckpointの最大数
   logging_strategy: steps
@@ -101,7 +107,6 @@ trainer:
   eval_steps: 0.2  # training_step全体の何%ごとに評価するか
   metric_for_best_model: eval_loss
   report_to: wandb
-
 
 # ---------- Overriding hydra default configs ----------
 hydra:

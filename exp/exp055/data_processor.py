@@ -1,5 +1,6 @@
 import gc
 import os
+import re
 import json
 import logging
 from typing import Union, Optional
@@ -34,6 +35,73 @@ LOGGER = logging.getLogger(__name__)
 
 TOKENIZER = Union[PreTrainedTokenizer, PreTrainedTokenizerFast]
 MODEL = Union[PreTrainedModel, SentenceTransformer, nn.Module]
+
+
+def preprocess_text(x: str) -> str:
+    x = re.sub(r"http\w+", "", x)  # Delete URL
+    x = re.sub(r"\.+", ".", x)  # Replace consecutive commas and periods with one comma and period character
+    x = re.sub(r"\,+", ",", x)
+    x = re.sub(r"\\\(", " ", x)
+    x = re.sub(r"\\\)", " ", x)
+    x = re.sub(r"[ ]{1,}", " ", x)
+    x = x.strip()  # Remove empty characters at the beginning and end
+    return x
+
+
+def get_retrieval_text_for_top1(
+    gt_misconception_id: int, misconception_ids: np.ndarray, id2name_mapping: dict[int, str]
+) -> str:
+    # 並びをrandomにする
+    # misconception_ids = random.sample(misconception_ids, len(misconception_ids))
+    retrieval = ""
+
+    # gtが必ず含まれるようにして5件サンプリング
+    wo_gt_misconception_ids = misconception_ids[~(misconception_ids == gt_misconception_id)]
+    # 10 class問題として学習する
+    sampled_misconception_ids = np.array(
+        [gt_misconception_id] + list(np.random.choice(wo_gt_misconception_ids, 10, replace=False))
+    )
+    np.random.shuffle(sampled_misconception_ids)
+    for i, id in enumerate(sampled_misconception_ids):
+        name = id2name_mapping[id]
+        retrieval += f"{i}. {name} \n"
+    return retrieval
+
+
+def add_top1_prompt(
+    df: pl.DataFrame, misconception: pl.DataFrame, tokenizer: TOKENIZER, candidate_misconception_ids: np.ndarray
+) -> pl.DataFrame:
+    id2name_mapping = {row["MisconceptionId"]: row["MisconceptionName"] for row in misconception.iter_rows(named=True)}
+    prompt = """
+Here is a question about {ConstructName}({SubjectName}).
+Question: {Question}
+Correct Answer: {CorrectAnswer}
+Incorrect Answer: {IncorrectAnswer}
+
+You are a Mathematics teacher. Your task is to reason and identify the misconception behind the Incorrect Answer with the Question.
+Answer concisely what misconception it is to lead to getting the incorrect answer.
+Pick the correct misconception "text" from the below:
+
+{Retrieval}
+"""
+    texts = []
+    for i, row in enumerate(df.iter_rows(named=True)):
+        retrieval = get_retrieval_text_for_top1(row["MisconceptionId"], candidate_misconception_ids[i], id2name_mapping)
+        texts.append(
+            preprocess_text(
+                prompt.format(
+                    ConstructName=row["ConstructName"],
+                    SubjectName=row["SubjectName"],
+                    Question=row["QuestionText"],
+                    CorrectAnswer=row["CorrectAnswerText"],
+                    IncorrectAnswer=row["InCorrectAnswerText"],
+                    Retrieval=retrieval,
+                )
+            )
+        )
+
+    df = df.with_columns(pl.Series(texts).alias("Prompt"))
+    return df
 
 
 def encode(
@@ -332,9 +400,11 @@ def sentence_emb_similarity_by_sentence_transformers(
     return sorted_similarity
 
 
-def setup_lora_model(base_model: MODEL, pretrained_path: str | None, lora_params: dict | None) -> MODEL:
+def setup_lora_model(
+    base_model: MODEL, pretrained_path: str | None, lora_params: dict | None, is_trainable: bool = False
+) -> MODEL:
     if pretrained_path:
-        lora_model = PeftModel.from_pretrained(base_model, pretrained_path)
+        lora_model = PeftModel.from_pretrained(base_model, pretrained_path, is_trainable=is_trainable)
     else:
         lora_config = LoraConfig(
             **lora_params,
@@ -396,6 +466,7 @@ def setup_model_and_tokenizer(
     is_quantized: bool = False,
     use_lora: bool = False,
     lora_params: Optional[dict] = None,
+    is_trainable: bool = False,
 ) -> tuple[Union[MODEL, PeftModel], TOKENIZER]:
     """
     Unified model and tokenizer setup function.
@@ -409,7 +480,7 @@ def setup_model_and_tokenizer(
         )
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if use_lora:
-        model = setup_lora_model(model, pretrained_path, lora_params)
+        model = setup_lora_model(model, pretrained_path, lora_params, is_trainable=is_trainable)
 
     return model, tokenizer
 
@@ -560,23 +631,25 @@ class DataProcessor:
         input_df, misconception = self.read_data()
         df = preprocess_table(input_df, self.common_cols)
 
-        if self.cfg.phase == "test":
-            df = generate_candidates(df, misconception, self.cfg)
-        else:
+        if self.cfg.phase == "train":
             # misconception情報(target)を取得
             pp_misconception_mapping = preprocess_misconception(input_df, self.common_cols)
             df = df.join(pp_misconception_mapping, on="QuestionId_Answer", how="inner")
             df = df.filter(pl.col("MisconceptionId").is_not_null())
             df = self.add_fold(df)
-            if self.cfg.phase == "valid":
-                df = df.filter(pl.col("fold") == self.cfg.use_fold)
             if self.cfg.debug:
-                df = df.sample(fraction=0.05, seed=self.cfg.seed)
-            # 学習用の候補を生成する
-            df = generate_candidates(df, misconception, self.cfg)
+                df = df.sample(fraction=0.05, shuffle=True, seed=self.cfg.seed)
+                _misconception = misconception.sample(fraction=0.05, shuffle=True, seed=self.cfg.seed)
+                df = generate_candidates(df, _misconception, self.cfg)
+            else:
+                df = generate_candidates(df, misconception, self.cfg)
+            # df = pl.concat(df_list).sort("QuestionId_Answer")
             LOGGER.info(f"recall: {calc_recall(df):.5f}")
             LOGGER.info(f"mapk: {calc_mapk(df):.5f}")
             df = df.join(misconception, on="MisconceptionId", how="left")  # 正解ラベルの文字列を追加
+            predict_misconception_ids = np.stack(df["PredictMisconceptionId"].str.split(" ").to_list()).astype(int)
+            tokenizer = AutoTokenizer.from_pretrained(self.cfg.llm_model.name)
+            df = add_top1_prompt(df, misconception, tokenizer, predict_misconception_ids)
 
         df.write_csv(self.output_dir / f"{self.cfg.phase}.csv")
 
