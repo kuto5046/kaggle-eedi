@@ -425,7 +425,7 @@ class InferencePipeline:
         # retrieval
         df, misconception_mapping = self.setup_dataset()
         if self.cfg.phase == "valid":
-            df = df.sample(n=100, seed=self.cfg.seed)
+            # df = df.sample(n=100, seed=self.cfg.seed)
             LOGGER.info(f"retrieval num_sample:{len(df)}")
             LOGGER.info(f"Recall: {calc_recall(df)}")
             LOGGER.info(f"MAP@K: {calc_mapk(df)}")
