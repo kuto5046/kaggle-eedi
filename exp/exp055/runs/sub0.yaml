@@ -27,6 +27,11 @@ llm_model:
   pretrained_path: ${path.output_dir}/${exp_name}/run2
   use: true
   predict_type: top1
+  # pretrained_pathを読むのでlora設定はこっちで設定しなくても良い
+  # lora:
+  #   r: 8
+  #   lora_alpha: 16
+  #   lora_dropout: 0.05
 
 vllm:
   sampling:
