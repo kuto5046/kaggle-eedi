@@ -561,6 +561,8 @@ class DataProcessor:
         df = preprocess_table(input_df, self.common_cols)
 
         if self.cfg.phase == "test":
+            if self.cfg.debug:
+                misconception = misconception.sample(fraction=0.05, seed=self.cfg.seed)+
             df = generate_candidates(df, misconception, self.cfg)
         else:
             # misconception情報(target)を取得

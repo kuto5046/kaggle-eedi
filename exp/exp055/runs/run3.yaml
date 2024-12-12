@@ -1,0 +1,29 @@
+# @package _global_
+run_name: run3
+notes: LLM FT lora小さくして5epoch
+use_fold: 0
+feature_version: exp055/run0
+retrieval_model:
+  base_name: Qwen/Qwen2.5-32B-Instruct
+  pretrained_path: ${path.output_dir}/exp053/run0
+  use_lora: true
+  is_quantized: true
+  use_sentence_transformers: false
+  batch_size: 64
+  lora:
+    r: 64
+    lora_alpha: 128
+    lora_dropout: 0.05
+    task_type: DEFAULT
+
+llm_model:
+  lora:
+    r: 8
+    lora_alpha: 16
+    lora_dropout: 0.05
+
+trainer:
+  epoch: 5
+  batch_size: 16
+  gradient_accumulation_steps: 1
+  learning_rate: 2e-5
