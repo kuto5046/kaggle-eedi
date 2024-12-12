@@ -24,7 +24,7 @@ ensemble:
 llm_model:
   # name: KirillR/QwQ-32B-Preview-AWQ
   name: Qwen/Qwen2.5-32B-Instruct-AWQ
-  pretrained_path: ${path.output_dir}/${exp_name}/run0
+  pretrained_path: ${path.output_dir}/${exp_name}/run1
   use: true
   predict_type: top1
 
